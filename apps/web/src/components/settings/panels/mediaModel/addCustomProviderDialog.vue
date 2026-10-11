@@ -12,7 +12,7 @@
     <div v-if="mode === 'builtin'" class="providerPicker">
       <aside class="providerSidebar" aria-label="选择厂商">
         <button
-          v-for="item in mediaProviders"
+          v-for="item in builtInProviders"
           :key="item.id"
           class="providerItem"
           type="button"
@@ -117,9 +117,10 @@ import { writeClipboardText } from "@/lib/clipboard";
 const { mode = "custom" } = defineProps<{ mode?: "builtin" | "custom" }>();
 const visible = defineModel<boolean>({ default: false });
 const emit = defineEmits<{ added: [provider: MediaProvider] }>();
+const builtInProviders = mediaProviders.filter(provider => provider.id !== "runningHubH3");
 const providerSources: Record<string, string> = { tfRouter: tfRouterSource, apiMart: apiMartSource, metaso: metasoSource, compshare: compshareSource };
-const selectedProvider = ref<string>(mediaProviders[0]?.id ?? "");
-const activeProvider = computed(() => mediaProviders.find(provider => provider.id === selectedProvider.value));
+const selectedProvider = ref<string>(builtInProviders[0]?.id ?? "");
+const activeProvider = computed(() => builtInProviders.find(provider => provider.id === selectedProvider.value));
 const models = computed<MediaProvider["models"]>(() => activeProvider.value?.models ?? []);
 const providerReadme = computed(() => {
   const provider = activeProvider.value;
@@ -158,7 +159,7 @@ watch(visible, value => {
   agentOpening = undefined;
   openingAgent.value = false;
   if (!value) { agentVisible.value = false; return; }
-  selectedProvider.value = mediaProviders[0]?.id ?? "";
+  selectedProvider.value = builtInProviders[0]?.id ?? "";
   activeTab.value = "file";
   promptExpanded.value = false;
   formApi.value = undefined;

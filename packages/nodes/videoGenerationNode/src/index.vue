@@ -55,6 +55,7 @@
           <el-select
             v-model="data.model"
             class="modelSelect"
+            :class="{ 'modelSelect--h3': selectedModel?.providerId === 'runningHubH3' }"
             filterable
             :loading="modelsLoading"
             :disabled="generating || deleting"
@@ -470,6 +471,23 @@ nodeTools.register({
         padding: 0;
         box-shadow: none;
         background: transparent;
+      }
+    }
+
+    .modelSelect--h3 {
+      :deep(.el-select__wrapper) {
+        box-shadow: 0 0 0 1px #7c3aed inset;
+        border-radius: 6px;
+      }
+
+      &:hover {
+        :deep(.el-select__wrapper) {
+          box-shadow: 0 0 0 1px #6d28d9 inset;
+        }
+      }
+
+      :deep(.el-select__wrapper.is-focused) {
+        box-shadow: 0 0 0 1px #6d28d9 inset, 0 0 0 2px rgb(124 58 237 / 18%);
       }
     }
 

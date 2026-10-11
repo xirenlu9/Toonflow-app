@@ -6,6 +6,8 @@ const modelSchema = z.object({
   display_name: z.string().optional(), displayName: z.string().optional(),
   inputTokenLimit: z.number().int().positive().optional(),
   outputTokenLimit: z.number().int().positive().optional(),
+  context_length: z.number().int().positive().optional(),
+  max_output_tokens: z.number().int().positive().optional(),
 });
 
 export async function fetchProviderModels({ apiUrl, protocol, apiKey }: { apiUrl: string; protocol: string; apiKey: string }) {
@@ -33,7 +35,12 @@ export async function fetchProviderModels({ apiUrl, protocol, apiKey }: { apiUrl
     for (const item of items) {
       const id = item.id?.trim();
       if (!id) throw new Error("模型列表包含无效的模型 ID");
-      models.set(id, { id, label: item.display_name || item.displayName || id, contextWindow: item.inputTokenLimit, maxOutputTokens: item.outputTokenLimit });
+      models.set(id, {
+        id,
+        label: item.display_name || item.displayName || id,
+        contextWindow: item.inputTokenLimit ?? item.context_length,
+        maxOutputTokens: item.outputTokenLimit ?? item.max_output_tokens,
+      });
     }
     const cursor = protocol === "anthropic-messages" && result.has_more ? result.last_id : undefined;
     if (protocol === "anthropic-messages" && result.has_more && !cursor) throw new Error("模型列表缺少分页游标");

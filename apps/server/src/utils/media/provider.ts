@@ -11,6 +11,7 @@ import { z } from "zod";
 import conf from "@/utils/conf";
 import { convertAudio } from "@/utils/media/audioProcessor";
 import { createWorkspaceFfmpeg } from "@/utils/ffmpeg";
+import { createRunningHubH3Tools } from "@/utils/media/runningHubH3";
 import { lockWorkspaceFiles, writeWorkspaceFile } from "@/utils/workspace/files";
 
 type Expression = Extract<ReturnType<typeof parseExpression>, { type: "ParenthesizedExpression" }>["expression"];
@@ -418,6 +419,7 @@ export async function loadMediaProviderSource(source: string, config: Record<str
         if (!cwd) throw new Error("当前操作没有工作目录，无法使用 FFmpeg");
         return createWorkspaceFfmpeg(cwd, signal);
       },
+      ...(id === "runningHubH3" && cwd ? { runningHubH3: createRunningHubH3Tools(cwd, signal) } : {}),
     } satisfies ProviderTools,
   };
   for (const [name, generate] of [

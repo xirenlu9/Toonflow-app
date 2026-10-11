@@ -79,6 +79,10 @@ interface FfmpegRequiredError extends Error {
 
 interface ProviderTools {
   fetch: typeof globalThis.fetch;
+  /** 使用本机 RunningHub H3 加密 Key 池和任务队列；仅 H3 内置供应商可调用。 */
+  runningHubH3?: {
+    generateVideo(request: VideoRequest): Promise<MediaAsset[]>;
+  };
   /** 提取供应商错误正文中的可读原因，并隐藏配置中的密钥和 URL 查询参数。 */
   errorMessage(value: unknown): string;
   hash: typeof Bun.hash;
