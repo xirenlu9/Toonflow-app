@@ -95,26 +95,24 @@ router.use(localDesktopOnly);
 router.get("/overview", async (_req, res) => {
   const health = await runningHubH3ServiceRequest("/api/health");
   if (health.service !== serviceName) throw Object.assign(new Error("连接的本机服务不是 RunningHub H3 服务"), { status: 503 });
-  const [executorResponse, keyResponse, jobResponse] = await Promise.all([
-    runningHubH3ServiceRequest("/api/executor"),
+  const [keyResponse, jobResponse] = await Promise.all([
     runningHubH3ServiceRequest("/api/keys"),
     runningHubH3ServiceRequest("/api/jobs"),
   ]);
-  const executor = record(executorResponse);
   const keys = Array.isArray(keyResponse.keys) ? keyResponse.keys.map(publicKey) : [];
   const jobs = Array.isArray(jobResponse.jobs) ? jobResponse.jobs.slice(-100).reverse().map(publicJob) : [];
+  const activeTasks = jobs.filter(job => ["uploading", "submitting", "submission_unknown", "submitted", "running"].includes(job.status)).length;
+  const executorStatus = typeof health.executor === "string" ? health.executor : "unknown";
   res.json(success({
-    service: { online: health.ok === true, executor: typeof health.executor === "string" ? health.executor : "unknown" },
+    service: { online: health.ok === true, executor: executorStatus },
     executor: {
-      paused: executor.paused === true,
-      reason: typeof executor.reason === "string" ? executor.reason : null,
-      storageBlocked: executor.storageBlocked === true,
-      activeTasks: finiteNumber(health.activeTasks) ?? 0,
+      paused: executorStatus === "paused",
+      reason: null,
+      storageBlocked: executorStatus === "blocked",
+      canControl: false,
+      activeTasks: finiteNumber(health.activeTasks) ?? activeTasks,
     },
-    settings: {
-      maxConcurrent: finiteNumber(record(executor.settings).maxConcurrent),
-      minCredits: finiteNumber(record(executor.settings).minCredits),
-    },
+    settings: { maxConcurrent: null, minCredits: null },
     keys,
     jobs,
   }));

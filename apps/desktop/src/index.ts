@@ -10,6 +10,7 @@ import type { DesktopRuntime, PluginInstallRequest } from "@toonflow/server/desk
 import { showNativeSplash } from "@toonflow/startup";
 import Electrobun, { ApplicationMenu, BrowserWindow, PATHS, Screen, Utils, Updater } from "electrobun/main";
 import { parseInstallUrl } from "./protocol";
+import startRunningHubH3Service from "./runningHubH3Service";
 import saveFile, { selectSaveFile } from "./saveFile";
 import createWindowsUpdater, { confirmWindowsUpdateStartup } from "./update/windowsUpdater";
 
@@ -123,6 +124,7 @@ async function start() {
       return;
     }
     process.env.toonflowDesktop = "1";
+    if (process.platform === "win32") void startRunningHubH3Service().catch(error => console.error("自动启动本机 RunningHub H3 服务失败：", error));
     const { createApp } = await import("@toonflow/server/app");
     const { closeBrowsers } = await import("@toonflow/server/browser");
     const { hash, version } = await file(resolve(PATHS.RESOURCES_FOLDER, "version.json")).json();

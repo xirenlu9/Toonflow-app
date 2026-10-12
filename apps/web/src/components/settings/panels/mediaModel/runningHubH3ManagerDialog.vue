@@ -13,7 +13,7 @@
     <div class="h3Manager">
       <el-alert v-if="!overview?.service.online" type="warning" :closable="false" showIcon title="本机 H3 服务未连接">
         <template #default>
-          <p>请在已安装的 runninghub-minimax-h3 Skill 目录启动 <code>node service/cli.mjs start</code>。Toonflow 不会自动启动服务，也不会把服务令牌发送到网页。</p>
+          <p>Toonflow 会在桌面主程序启动时自动启动本机 H3 服务，无需输入 Vault 口令。服务令牌仅由桌面主进程使用，不会发送到网页；若持续离线，请确认 Node.js 20+ 和 runninghub-minimax-h3 Skill 已安装。</p>
         </template>
       </el-alert>
       <el-alert v-else-if="overview.executor.paused" type="warning" :closable="false" showIcon :title="executorStateLabel">
@@ -35,8 +35,8 @@
                 <div><span>已启用</span><strong>{{ enabledKeyCount }}</strong></div>
               </div>
               <div class="overviewActions">
-                <el-button type="warning" :disabled="!overview?.service.online || overview.executor.paused || !!busy" :loading="busy === 'pause'" @click="setExecutor('pause')">暂停执行器</el-button>
-                <el-button type="success" :disabled="!overview?.service.online || !overview.executor.paused || !!busy" :loading="busy === 'resume'" @click="setExecutor('resume')">恢复执行器</el-button>
+                <el-button type="warning" :disabled="!overview?.service.online || !overview.executor.canControl || overview.executor.paused || !!busy" :loading="busy === 'pause'" @click="setExecutor('pause')">暂停执行器</el-button>
+                <el-button type="success" :disabled="!overview?.service.online || !overview.executor.canControl || !overview.executor.paused || !!busy" :loading="busy === 'resume'" @click="setExecutor('resume')">恢复执行器</el-button>
               </div>
             </el-card>
             <el-card shadow="never">
@@ -118,19 +118,19 @@
             <template #header><strong>本机执行器调度</strong></template>
             <el-form labelPosition="top" class="schedulerForm" @submit.prevent>
               <el-form-item label="全局并发上限">
-                <el-input-number v-model="scheduler.maxConcurrent" :min="1" :max="4" :step="1" :disabled="!overview?.service.online || !!busy" />
-                <el-text class="hint" type="info" size="small">服务限制为 1–4；每个匿名账号组同一时刻最多一个活动任务。</el-text>
+                <el-input-number v-model="scheduler.maxConcurrent" :min="1" :max="4" :step="1" :disabled="!overview?.service.online || overview.settings.maxConcurrent === null || !!busy" />
+                <el-text class="hint" type="info" size="small">当前 H3 Skill 版本不提供并发设置接口。</el-text>
               </el-form-item>
               <el-form-item label="最低实时积分">
-                <el-input-number v-model="scheduler.minCredits" :min="0.01" :max="1e12" :precision="2" :step="1" :disabled="!overview?.service.online || !!busy" />
-                <el-text class="hint" type="info" size="small">余额低于此值时不调度；这不是单条视频的费用估算。</el-text>
+                <el-input-number v-model="scheduler.minCredits" :min="0.01" :max="1e12" :precision="2" :step="1" :disabled="!overview?.service.online || overview.settings.minCredits === null || !!busy" />
+                <el-text class="hint" type="info" size="small">当前 H3 Skill 版本不提供最低积分设置接口。</el-text>
               </el-form-item>
-              <el-button type="primary" :loading="busy === 'settings'" :disabled="!overview?.service.online || !!busy || !settingsChanged" @click="saveScheduler">保存调度设置</el-button>
+              <el-button type="primary" :loading="busy === 'settings'" :disabled="!overview?.service.online || overview.settings.maxConcurrent === null || overview.settings.minCredits === null || !!busy || !settingsChanged" @click="saveScheduler">保存调度设置</el-button>
               <el-divider />
               <div class="executorControls">
-                <div><strong>执行器：{{ overview ? executorStateLabel : "未知" }}</strong><p class="muted">暂停仅阻止新的本机提交；正在跟踪的任务仍按原账号和任务 ID 继续查询。</p></div>
-                <el-button v-if="!overview?.executor.paused" type="warning" :loading="busy === 'pause'" :disabled="!overview?.service.online || !!busy" @click="setExecutor('pause')">暂停执行器</el-button>
-                <el-button v-else type="success" :loading="busy === 'resume'" :disabled="!overview?.service.online || !!busy" @click="setExecutor('resume')">恢复执行器</el-button>
+                <div><strong>执行器：{{ overview ? executorStateLabel : "未知" }}</strong><p class="muted">当前 H3 Skill 版本不提供执行器暂停或恢复接口。</p></div>
+                <el-button v-if="!overview?.executor.paused" type="warning" :loading="busy === 'pause'" :disabled="!overview?.service.online || !overview.executor.canControl || !!busy" @click="setExecutor('pause')">暂停执行器</el-button>
+                <el-button v-else type="success" :loading="busy === 'resume'" :disabled="!overview?.service.online || !overview.executor.canControl || !!busy" @click="setExecutor('resume')">恢复执行器</el-button>
               </div>
             </el-form>
           </el-card>
@@ -168,8 +168,8 @@ type H3Usage = { rhCoins: number | null; walletAmount: number | null; thirdParty
 type H3Job = { id: string; status: string; taskId: string | null; keyId: string | null; accountGroup: string | null; parameters: { durationSeconds: number | null; aspectRatio: string | null; megapixels: number | null }; usage: H3Usage; waitReason: string | null; hasError: boolean; createdAt: string | null; updatedAt: string | null };
 type H3Overview = {
   service: { online: boolean; executor: string };
-  executor: { paused: boolean; reason: string | null; storageBlocked: boolean; activeTasks: number };
-  settings: { maxConcurrent?: number; minCredits?: number };
+  executor: { paused: boolean; reason: string | null; storageBlocked: boolean; canControl: boolean; activeTasks: number };
+  settings: { maxConcurrent: number | null; minCredits: number | null };
   keys: H3Key[];
   jobs: H3Job[];
 };
@@ -193,7 +193,8 @@ const accountGroups = computed(() => [...new Set((overview.value?.keys ?? []).ma
 const keys = computed<H3Key[]>(() => overview.value?.keys ?? []);
 const jobs = computed<H3Job[]>(() => overview.value?.jobs ?? []);
 const enabledKeyCount = computed(() => overview.value?.keys.filter(key => key.enabled).length ?? 0);
-const settingsChanged = computed(() => !!overview.value && (scheduler.value.maxConcurrent !== overview.value.settings.maxConcurrent || scheduler.value.minCredits !== overview.value.settings.minCredits));
+const settingsChanged = computed(() => !!overview.value && overview.value.settings.maxConcurrent !== null && overview.value.settings.minCredits !== null
+  && (scheduler.value.maxConcurrent !== overview.value.settings.maxConcurrent || scheduler.value.minCredits !== overview.value.settings.minCredits));
 const executorStateLabel = computed(() => {
   if (!overview.value) return "未知";
   if (!overview.value.service.online) return "服务离线";
@@ -306,9 +307,9 @@ async function addSingleKey() {
 }
 
 async function readImportFile(event: Event) {
-  clearPreview();
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
+  clearPreview();
   if (!file) return;
   fileName.value = file.name;
   if (file.size > 1024 * 1024) {
