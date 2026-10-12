@@ -95,24 +95,34 @@ router.use(localDesktopOnly);
 router.get("/overview", async (_req, res) => {
   const health = await runningHubH3ServiceRequest("/api/health");
   if (health.service !== serviceName) throw Object.assign(new Error("连接的本机服务不是 RunningHub H3 服务"), { status: 503 });
-  const [keyResponse, jobResponse] = await Promise.all([
+  const [executorResponse, keyResponse, jobResponse] = await Promise.all([
+    runningHubH3ServiceRequest("/api/executor").catch((error: unknown) => {
+      if (error && typeof error === "object" && "status" in error && error.status === 404) return null;
+      throw error;
+    }),
     runningHubH3ServiceRequest("/api/keys"),
     runningHubH3ServiceRequest("/api/jobs"),
   ]);
   const keys = Array.isArray(keyResponse.keys) ? keyResponse.keys.map(publicKey) : [];
-  const jobs = Array.isArray(jobResponse.jobs) ? jobResponse.jobs.slice(-100).reverse().map(publicJob) : [];
-  const activeTasks = jobs.filter(job => ["uploading", "submitting", "submission_unknown", "submitted", "running"].includes(job.status)).length;
+  const allJobs = Array.isArray(jobResponse.jobs) ? jobResponse.jobs : [];
+  const jobs = allJobs.slice(-100).reverse().map(publicJob);
+  const activeTasks = allJobs.filter(job => ["uploading", "submitting", "submission_unknown", "submitted", "remote_queued", "running"].includes(record(job).status as string)).length;
+  const executor = record(executorResponse);
+  const canControl = executorResponse !== null;
   const executorStatus = typeof health.executor === "string" ? health.executor : "unknown";
   res.json(success({
     service: { online: health.ok === true, executor: executorStatus },
     executor: {
-      paused: executorStatus === "paused",
-      reason: null,
-      storageBlocked: executorStatus === "blocked",
-      canControl: false,
+      paused: canControl ? executor.paused === true : executorStatus === "paused",
+      reason: typeof executor.reason === "string" ? executor.reason : null,
+      storageBlocked: executor.storageBlocked === true || executorStatus === "blocked",
+      canControl,
       activeTasks: finiteNumber(health.activeTasks) ?? activeTasks,
     },
-    settings: { maxConcurrent: null, minCredits: null },
+    settings: {
+      maxConcurrent: canControl ? finiteNumber(record(executor.settings).maxConcurrent) : null,
+      minCredits: canControl ? finiteNumber(record(executor.settings).minCredits) : null,
+    },
     keys,
     jobs,
   }));

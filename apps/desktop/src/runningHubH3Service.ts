@@ -123,13 +123,20 @@ async function startService() {
   const nodePath = await nodeExecutable();
   const serviceHome = resolve(process.env.RH_H3_HOME || join(homedir(), ".runninghub-h3-service"));
   process.env.RH_H3_HOME = serviceHome;
-  let passphrase = credentialPassphrase();
-  if (!passphrase) {
-    if (existsSync(resolve(serviceHome, "state.json"))) {
-      throw new Error("本机 H3 Vault 尚未关联 Windows 凭据，无法免口令自动解锁；现有 Vault 数据未修改");
+  const serviceEnvironment: NodeJS.ProcessEnv = { ...process.env, RH_H3_HOME: serviceHome, RH_H3_PORT: String(port) };
+  // ACT: 已支持 DPAPI 的 Skill 自行解锁，主进程不读取口令；旧凭据库继续保留读取兼容。
+  const hasAutomaticVault = existsSync(resolve(skillDirectory, "service", "lib", "windowsVault.mjs"))
+    && (existsSync(resolve(serviceHome, "vault.passphrase.dpapi")) || !existsSync(resolve(serviceHome, "state.json")));
+  if (!hasAutomaticVault && !serviceEnvironment.RH_H3_VAULT_PASSPHRASE) {
+    let passphrase = credentialPassphrase();
+    if (!passphrase) {
+      if (existsSync(resolve(serviceHome, "state.json"))) {
+        throw new Error("本机 H3 Vault 尚未配置自动解锁，请使用原口令手动启动服务；现有 Vault 数据未修改");
+      }
+      passphrase = randomBytes(48).toString("base64url");
+      saveCredentialPassphrase(passphrase);
     }
-    passphrase = randomBytes(48).toString("base64url");
-    saveCredentialPassphrase(passphrase);
+    serviceEnvironment.RH_H3_VAULT_PASSPHRASE = passphrase;
   }
 
   const child = spawn(nodePath, [resolve(skillDirectory, "service", "cli.mjs"), "start"], {
@@ -137,7 +144,7 @@ async function startService() {
     detached: true,
     windowsHide: true,
     stdio: "ignore",
-    env: { ...process.env, RH_H3_HOME: serviceHome, RH_H3_PORT: String(port), RH_H3_VAULT_PASSPHRASE: passphrase },
+    env: serviceEnvironment,
   });
   let exitCode: number | null = null;
   child.once("exit", code => { exitCode = code; });

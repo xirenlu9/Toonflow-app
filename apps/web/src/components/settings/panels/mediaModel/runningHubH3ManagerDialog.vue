@@ -13,7 +13,7 @@
     <div class="h3Manager">
       <el-alert v-if="!overview?.service.online" type="warning" :closable="false" showIcon title="本机 H3 服务未连接">
         <template #default>
-          <p>Toonflow 会在桌面主程序启动时自动启动本机 H3 服务，无需输入 Vault 口令。服务令牌仅由桌面主进程使用，不会发送到网页；若持续离线，请确认 Node.js 20+ 和 runninghub-minimax-h3 Skill 已安装。</p>
+          <p>Windows 桌面启动时会尝试启动本机 H3 服务，并复用已配置的免口令解锁机制。服务令牌不会发送到网页；若持续离线，请确认 Node.js 20+ 和 runninghub-minimax-h3 Skill 已安装。已有手动口令 Vault 仍需使用原口令启动，不会覆盖现有数据。</p>
         </template>
       </el-alert>
       <el-alert v-else-if="overview.executor.paused" type="warning" :closable="false" showIcon :title="executorStateLabel">
@@ -119,16 +119,16 @@
             <el-form labelPosition="top" class="schedulerForm" @submit.prevent>
               <el-form-item label="全局并发上限">
                 <el-input-number v-model="scheduler.maxConcurrent" :min="1" :max="4" :step="1" :disabled="!overview?.service.online || overview.settings.maxConcurrent === null || !!busy" />
-                <el-text class="hint" type="info" size="small">当前 H3 Skill 版本不提供并发设置接口。</el-text>
+                <el-text class="hint" type="info" size="small">{{ overview?.settings.maxConcurrent == null ? "当前 H3 Skill 版本不提供并发设置接口。" : "服务限制为 1–4；每个匿名账号组同一时刻最多一个活动任务。" }}</el-text>
               </el-form-item>
               <el-form-item label="最低实时积分">
                 <el-input-number v-model="scheduler.minCredits" :min="0.01" :max="1e12" :precision="2" :step="1" :disabled="!overview?.service.online || overview.settings.minCredits === null || !!busy" />
-                <el-text class="hint" type="info" size="small">当前 H3 Skill 版本不提供最低积分设置接口。</el-text>
+                <el-text class="hint" type="info" size="small">{{ overview?.settings.minCredits == null ? "当前 H3 Skill 版本不提供最低积分设置接口。" : "余额低于此值时不调度；这不是单条视频的费用估算。" }}</el-text>
               </el-form-item>
               <el-button type="primary" :loading="busy === 'settings'" :disabled="!overview?.service.online || overview.settings.maxConcurrent === null || overview.settings.minCredits === null || !!busy || !settingsChanged" @click="saveScheduler">保存调度设置</el-button>
               <el-divider />
               <div class="executorControls">
-                <div><strong>执行器：{{ overview ? executorStateLabel : "未知" }}</strong><p class="muted">当前 H3 Skill 版本不提供执行器暂停或恢复接口。</p></div>
+                <div><strong>执行器：{{ overview ? executorStateLabel : "未知" }}</strong><p class="muted">{{ overview?.executor.canControl ? "暂停仅阻止新的本机提交；正在跟踪的任务仍按原账号和任务 ID 继续查询。" : "当前 H3 Skill 版本不提供执行器暂停或恢复接口。" }}</p></div>
                 <el-button v-if="!overview?.executor.paused" type="warning" :loading="busy === 'pause'" :disabled="!overview?.service.online || !overview.executor.canControl || !!busy" @click="setExecutor('pause')">暂停执行器</el-button>
                 <el-button v-else type="success" :loading="busy === 'resume'" :disabled="!overview?.service.online || !overview.executor.canControl || !!busy" @click="setExecutor('resume')">恢复执行器</el-button>
               </div>
