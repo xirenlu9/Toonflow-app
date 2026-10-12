@@ -209,7 +209,7 @@ watch(visible, value => {
   activeTab.value = "overview";
   errorText.value = "";
   void loadOverview();
-});
+}, { immediate: true });
 
 function errorMessage(error: unknown) {
   if (axios.isAxiosError(error)) return error.response?.data?.message || error.message || "本机 H3 管理请求失败";
