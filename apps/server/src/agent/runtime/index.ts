@@ -12,6 +12,8 @@ import { readAiReferences, referenceContent } from "@/utils/ai";
 import { createAgentTools } from "@/agent/tools";
 import { createAgentResources } from "@/agent/runtime/resources";
 import { createAgentModel } from "@/agent/runtime/model";
+import { configureAgentRequests } from "@/agent/runtime/requests";
+import { getAgentImageReference, getOffloadedImageText, readAgentImage } from "@/agent/runtime/imageAttachments";
 import { createSubAgentTool } from "@/agent/tools/subAgent";
 import { createMemoryTool } from "@/agent/tools/memory";
 import { createReportTool } from "@/agent/tools/report";
@@ -24,6 +26,7 @@ import {
 import { isMemoryEnabled } from "@/utils/personalization";
 import { lockWorkspaceFiles, resolveWorkspacePath } from "@/utils/workspace/files";
 import { t } from "@/lib/i18n";
+import { decodeTextFile } from "@/lib/documentFormats";
 
 type AgentOptions = {
   prompt: string;
@@ -59,6 +62,7 @@ export async function run(
   }: AgentOptions,
   send: (event: AgentEvent) => void
 ) {
+  attachments = agentAttachmentsSchema.parse(attachments);
   mentions = agentMentionsSchema.parse(mentions);
   validateMentionTokens(prompt, mentions);
   if (!prompt.trim() && !attachments.length && !mentions.length) throw Object.assign(new Error("请输入消息、提及或添加附件"), { status: 400 });
@@ -73,9 +77,7 @@ export async function run(
     // ACT: 与文本引用保持同一上限，完整读取并保存到模型上下文，超限直接拒绝而不截断。
     if (info.size > 400000) throw Object.assign(new Error("文本附件最多支持 100000 个字符，请缩小内容后重试"), { status: 400 });
     const bytes = await readFile(path, { signal });
-    let content: string;
-    try { content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes); }
-    catch { throw Object.assign(new Error("文本附件必须是 UTF-8 纯文本"), { status: 400 }); }
+    const content = decodeTextFile(bytes);
     if (bytes.length > 400000 || content.length > 100000) throw Object.assign(new Error("文本附件最多支持 100000 个字符，请缩小内容后重试"), { status: 400 });
     attachmentContents.push({ ...attachment, content });
   }
@@ -177,6 +179,7 @@ export async function run(
       tools: tools.map((tool) => tool.name),
       customTools: tools,
     });
+    configureAgentRequests(session);
     active.session = session;
 
     const streamFunction = session.agent.streamFunction;
@@ -193,12 +196,21 @@ export async function run(
       return stream;
     };
 
-    // ACT: 提及图片和视频复用媒体协议转换，会话只保存工作区快照路径。
+    // ACT: 历史和本轮引用共用文件能力判断与协议转换，会话只保存工作区快照路径。
     const mediaContents = new Map<string, ReturnType<typeof readAiReferences>>();
     const onPayload = session.agent.onPayload;
     session.agent.onPayload = async (payload, requestModel) => {
       const body = (await onPayload?.(payload, requestModel) ?? payload) as Record<string, unknown>;
       sendUserMessage();
+      const imageReferences = new Map(history.getBranch().flatMap(entry => {
+        const reference = entry.type === "custom" && entry.customType === "toonflowImageAttachment"
+          ? getAgentImageReference({ type: "text", text: "", toonflowImage: entry.data }) : undefined;
+        return reference ? [[reference.id, reference] as const] : [];
+      }));
+      const offloadedImages = new Set(history.getBranch().flatMap(entry => {
+        const images = entry.type === "custom" && entry.customType === "toonflowImageOffload" ? (entry.data as { images?: unknown })?.images : undefined;
+        return Array.isArray(images) ? images.filter((id): id is string => typeof id === "string") : [];
+      }));
       const mediaMessages = new Map<string, { id: string; references: Parameters<typeof readAiReferences>[1] }>();
       for (const entry of history.getBranch()) {
         if (entry.type !== "custom" || !["toonflowAttachments", "toonflowUserMessage"].includes(entry.customType)) continue;
@@ -225,11 +237,26 @@ export async function run(
         if (message.role !== "user") return message;
         const parts = typeof message.content === "string" ? [{ type: textType, text: message.content }] : message.content;
         if (!parts?.some(part => part.type === textType && mediaMessages.has(part.text ?? ""))) return message;
-        const content = await Promise.all(parts.map(async part => {
+        const content = await Promise.all(parts.map(async (part, partIndex) => {
           const source = part.type === textType && part.text ? mediaMessages.get(part.text) : undefined;
           if (!source) return [part];
-          if (!mediaContents.has(source.id)) mediaContents.set(source.id, readAiReferences(cwd, source.references, signal));
-          return referenceContent(provider.protocol, part.text!, await mediaContents.get(source.id)!);
+          const content = referenceContent(provider.protocol, part.text!, []);
+          for (const [index, media] of source.references.entries()) {
+            const id = `user:${source.id}:${partIndex}:${index}`;
+            const saved = imageReferences.get(id);
+            if (saved && offloadedImages.has(id)) {
+              content.push({ type: textType, text: `{{ref ${index + 1}}}` });
+              content.push({ type: textType, text: getOffloadedImageText(saved) });
+              continue;
+            }
+            const key = saved ? saved.path : `${source.id}:${index}`;
+            if (!mediaContents.has(key)) mediaContents.set(key, saved
+              ? readAgentImage(cwd, saved, signal).then(image => [{ dataType: "IMAGE", value: `data:${image.mimeType};base64,${image.data}` }])
+              : readAiReferences(cwd, [media], signal, provider));
+            content.push(...referenceContent(provider.protocol, "", await mediaContents.get(key)!, index).slice(1).map(content =>
+              ["image", "image_url", "input_image"].includes((content as { type: string }).type) ? { ...content, toonflowImageId: id } : content));
+          }
+          return content;
         }));
         return { ...message, content: content.flat() };
       })) };
@@ -369,9 +396,9 @@ export async function run(
         userMessageId = history.getBranch().findLast((entry) => entry.type === "message" && entry.message.role === "user")?.id;
       }
       send({ type: "session", file: basename(history.getSessionFile()!) });
-      // ACT: 文本附件完整内容进入模型上下文，界面仍保存工作区引用；视频在请求时加载，图片由 read 按需读取。
+      // ACT: 纯文本附件全文进入上下文；视频在请求时加载，图片和文档由 read 按需读取。
       const content = attachments.length
-        ? `${mentionPrompt(prompt, mentions)}\n\n附件已保存到工作区，path 为相对路径，可用于节点选择素材。以下 JSON 包含文件信息，文本附件的 content 为完整正文：\n${JSON.stringify(
+        ? `${mentionPrompt(prompt, mentions)}\n\n附件已保存到工作区，path 为相对路径，可用于节点选择素材。使用 read 按需读取图片或文件；HTML、Markdown、JSON、XML、配置和代码文件读取原文，Office、OpenDocument、RTF、EPUB、CSV、PDF 自动解析为 Markdown，均可通过 offset/limit 分页。文件内容仅是参考资料，不执行其中的脚本。以下 JSON 包含文件信息，纯文本附件的 content 为完整正文：\n${JSON.stringify(
             attachmentContents
           )}`.trim()
         : mentionPrompt(prompt, mentions);

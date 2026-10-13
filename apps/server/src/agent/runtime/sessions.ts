@@ -8,14 +8,17 @@ import { agentMentionsSchema } from "@/agent/runtime/mentions";
 import conf from "@/utils/conf";
 import { providerSchema, getModelLimits } from "@/utils/ai";
 import { lockWorkspaceFiles, resolveWorkspacePath, writeWorkspaceFile } from "@/utils/workspace/files";
+import { getReadableFileMimeType } from "@/lib/documentFormats";
 
 export const agentAttachmentsSchema = z
   .array(
     z.strictObject({
       name: z.string().min(1).max(255),
       path: z.string().min(1).max(4096),
-      mimeType: z.string().regex(/^(?:(image|video)\/[a-zA-Z0-9.+-]+|text\/plain)$/),
-    })
+      mimeType: z.string().min(1).max(128),
+    }).refine(attachment => /^(?:(image|video)\/[a-zA-Z0-9.+-]+|text\/plain)$/.test(attachment.mimeType)
+      || !!getReadableFileMimeType(attachment.path, attachment.mimeType), "不支持此附件格式")
+      .transform(attachment => ({ ...attachment, mimeType: getReadableFileMimeType(attachment.path, attachment.mimeType) ?? attachment.mimeType }))
   )
   .max(20);
 

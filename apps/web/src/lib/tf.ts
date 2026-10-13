@@ -3,13 +3,6 @@ import { customProviders, settings } from "@/stores/settings";
 
 type TfRequestOptions = { apiKey?: string; signal?: AbortSignal };
 
-export type TfBalance = {
-  balance: number;
-  totalConsumption: number;
-  totalRecharge: number;
-  keyBalance: number | null;
-};
-
 export type TfPayment = { orderNumber: string; payUrl?: string };
 type TfOrder = { orderNumber: string; status: string | number };
 export type TfRechargeSku = { id: number; price: number; integral: number; describe: string };
@@ -75,12 +68,6 @@ function responseData<T>(response: TfResponse<T>, fallback = "TF-Router 请求�
   return response.data;
 }
 
-function balanceAmount(value: unknown): number {
-  const amount = typeof value === "string" && value.trim() ? Number(value) : value;
-  if (typeof amount !== "number" || !Number.isFinite(amount)) throw new Error("余额响应格式不正确");
-  return amount;
-}
-
 export default {
   async getSponsorList(options?: Pick<TfRequestOptions, "signal">): Promise<TfSponsor[]> {
     const { data } = await client.post<TfResponse<TfSponsor[]>>("/web/sponsor/getSponsorList", null, { signal: options?.signal, timeout: 20000 });
@@ -109,17 +96,6 @@ export default {
         || typeof integral !== "number" || !Number.isFinite(integral) || integral < 0 || typeof sku.describe !== "string") throw new Error("充值套餐响应格式不正确");
       return { id: sku.id, price, integral, describe: sku.describe };
     });
-  },
-
-  async getBalance(options?: TfRequestOptions): Promise<TfBalance> {
-    const { data } = await client.get<TfResponse<TfBalance>>("/v1/balance", requestOptions(options));
-    const balance = responseData(data);
-    return {
-      balance: balanceAmount(balance?.balance),
-      totalConsumption: balanceAmount(balance?.totalConsumption),
-      totalRecharge: balanceAmount(balance?.totalRecharge),
-      keyBalance: balance?.keyBalance === null ? null : balanceAmount(balance?.keyBalance),
-    };
   },
 
   async pay({ comboId, customMoney, payType }: TfPayParams, options?: TfRequestOptions): Promise<TfPayment> {

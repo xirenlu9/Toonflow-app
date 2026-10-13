@@ -30,6 +30,8 @@ export type NodeImageRequest = {
 export type NodeImageResult = { path: string; mimeType: string; mediaType: "image" };
 export type NodeVideoRequest = Omit<MediaGenerationRequest, "size"> & { directory: string; outputDirectory: string };
 export type NodeVideoResult = { path: string; mimeType: string; mediaType: "video" };
+export type NodeMediaPriceRequest = (NodeImageRequest & { mediaType: "image" }) | (NodeVideoRequest & { mediaType: "video" }) | (NodeAudioRequest & { mediaType: "audio" });
+export type NodeMediaPrice = { price: string; tips: string };
 export type NodeAudioRequest = Pick<MediaGenerationRequest, "providerId" | "modelId" | "prompt" | "images" | "audios" | "voice" | "speed" | "volume" | "pitch" | "language" | "format" | "sampleRate"> & { directory: string; outputDirectory: string };
 export type NodeAudioResult = { path: string; mimeType: string; mediaType: "audio" };
 export type NodeAiRequest = {
@@ -38,7 +40,7 @@ export type NodeAiRequest = {
   prompt: string;
   systemPrompt?: string;
   directory?: string;
-  references?: Extract<NodeOutput, { dataType: "STRING" | "IMAGE" | "VIDEO" }>[];
+  references?: Extract<NodeOutput, { dataType: "STRING" | "IMAGE" | "VIDEO" | "FILE" }>[];
   tools?: NodeAiTool[];
   onEvent?: (event: NodeAiEvent) => void;
   signal?: AbortSignal;
@@ -68,8 +70,28 @@ const modelCacheKey = Symbol.for("toonflow.nodeModels");
 const modelCacheHost = globalThis as typeof globalThis & { [modelCacheKey]?: Map<string, Promise<unknown[]>> };
 const modelCache = modelCacheHost[modelCacheKey] ??= new Map<string, Promise<unknown[]>>();
 
+type MediaPriceCache = {
+  prices: Map<string, { expires: number; value: Promise<NodeMediaPrice | null> }>;
+  requestedAt: Map<string, number>;
+};
+const mediaPriceCacheKey = Symbol.for("toonflow.nodeMediaPrices");
+const mediaPriceCacheHost = globalThis as typeof globalThis & { [mediaPriceCacheKey]?: MediaPriceCache };
+const mediaPriceCache = mediaPriceCacheHost[mediaPriceCacheKey] ??= (() => {
+  const cache: MediaPriceCache = { prices: new Map(), requestedAt: new Map() };
+  if (typeof window !== "undefined") {
+    const invalidate = (event: Event) => {
+      if (event.type === "toonflow:plugin-installed" && (event as CustomEvent<{ type?: string }>).detail?.type !== "provider") return;
+      cache.prices.clear();
+    };
+    window.addEventListener("toonflow:provider-config-changed", invalidate);
+    window.addEventListener("toonflow:plugin-installed", invalidate);
+  }
+  return cache;
+})();
+
 export function invalidateNodeModels(type: "language" | "media") {
   modelCache.delete(type === "language" ? "/api/ai/models" : "/api/ai/media/models");
+  if (type === "media") mediaPriceCache.prices.clear();
 }
 
 async function readModels<T>(url: string, signal: AbortSignal): Promise<T[]> {
@@ -158,6 +180,73 @@ export function useNodeAi() {
     return readModels<NodeMediaModel>("/api/ai/media/models", requestSignal(signal));
   }
 
+  async function getMediaPrice(input: NodeMediaPriceRequest, signal?: AbortSignal): Promise<NodeMediaPrice | null> {
+    const waitingSignal = requestSignal(signal);
+    waitingSignal.throwIfAborted();
+    const now = Date.now();
+    const { prices, requestedAt } = mediaPriceCache;
+    for (const [key, entry] of prices) if (entry.expires <= now) prices.delete(key);
+    for (const [key, time] of requestedAt) if (time + 2000 <= now) requestedAt.delete(key);
+    const key = JSON.stringify({ ...input, outputDirectory: undefined });
+    let entry = prices.get(key);
+    if (!entry) {
+      // ACT: 节流状态跨节点面板重建保留；每个节点最多每 2 秒发起一次新报价。
+      const nodeKey = JSON.stringify([input.directory, input.outputDirectory, input.providerId]);
+      const delay = (requestedAt.get(nodeKey) ?? 0) + 2000 - now;
+      if (delay > 0) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let cancel = () => {};
+        try {
+          await new Promise<void>((resolve, reject) => {
+            timer = setTimeout(resolve, delay);
+            cancel = () => reject(waitingSignal.reason);
+            waitingSignal.addEventListener("abort", cancel, { once: true });
+          });
+          return await getMediaPrice(input, signal);
+        } finally {
+          clearTimeout(timer);
+          waitingSignal.removeEventListener("abort", cancel);
+        }
+      }
+      requestedAt.set(nodeKey, now);
+      if (requestedAt.size > 500) requestedAt.delete(requestedAt.keys().next().value!);
+      if (prices.size >= 500) prices.delete(prices.keys().next().value!);
+      const hasReferences = !!(input.images?.length || ("videos" in input && input.videos?.length) || ("audios" in input && input.audios?.length)
+        || ("firstFrame" in input && input.firstFrame) || ("lastFrame" in input && input.lastFrame));
+      const pending = { expires: Infinity, value: Promise.resolve<NodeMediaPrice | null>(null) };
+      // ACT: 最多缓存 500 条 / 30 秒；参考文件没有前端修订号，只合并进行中的查询，避免同路径覆盖后复用旧价。
+      pending.value = fetch("/api/ai/media/price", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-toonflow-workspace": "1" },
+        body: JSON.stringify(input),
+        signal: AbortSignal.timeout(15000),
+      }).then(readResult<NodeMediaPrice | null>).then(price => {
+        if (price !== null && (!price || typeof price.price !== "string" || !price.price.trim() || typeof price.tips !== "string")) {
+          throw new Error("价格响应格式不正确");
+        }
+        pending.expires = hasReferences ? 0 : Date.now() + 30000;
+        return price;
+      }).catch(error => {
+        pending.expires = Date.now() + 5000;
+        throw error;
+      });
+      prices.set(key, pending);
+      entry = pending;
+    }
+    // 单个节点退出只取消自己的等待，共用请求继续为其他节点提供结果。
+    let cancel = () => {};
+    try {
+      const price = await Promise.race([entry.value, new Promise<never>((_resolve, reject) => {
+        cancel = () => reject(waitingSignal.reason);
+        waitingSignal.addEventListener("abort", cancel, { once: true });
+      })]);
+      waitingSignal.throwIfAborted();
+      return prices.get(key) === entry ? price : getMediaPrice(input, signal);
+    } finally {
+      waitingSignal.removeEventListener("abort", cancel);
+    }
+  }
+
   async function generateMedia<T extends "image" | "video" | "audio">(mediaType: T, input: NodeImageRequest | NodeVideoRequest | NodeAudioRequest, signal?: AbortSignal) {
     return readResult<{ path: string; mimeType: string; mediaType: T }[]>(await fetch("/api/ai/media/generate", {
       method: "POST",
@@ -229,5 +318,5 @@ export function useNodeAi() {
     return { text, ...(reasoning ? { reasoning } : {}) };
   }
 
-  return { getModels, getMediaModels, generateImage, generateVideo, generateAudio, generate };
+  return { getModels, getMediaModels, getMediaPrice, generateImage, generateVideo, generateAudio, generate };
 }

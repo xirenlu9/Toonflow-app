@@ -113,7 +113,7 @@
           title="刷新节点"
           aria-label="刷新节点"
           @click.stop="reloadNode" />
-        <el-button :icon="IconX" text title="移除节点" aria-label="移除节点" @click.stop="deleteNode" :loading="deleting" />
+        <el-button :icon="IconTrash" text title="移除节点" aria-label="移除节点" @click.stop="deleteNode" :loading="deleting" />
       </div>
     </div>
     <div class="cardContainer">
@@ -165,7 +165,6 @@ import { computed, inject, nextTick, onScopeDispose, ref, shallowRef, watch, wat
 import { Handle, Position, getTransformForBounds, pointToRendererPoint, useNode, useVueFlow, wheelDelta } from "@vue-flow/core";
 import {
   IconRefresh,
-  IconX,
   IconTrash,
   IconCopy,
   IconCopyPlus,

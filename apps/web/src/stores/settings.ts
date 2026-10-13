@@ -4,6 +4,7 @@ import { computed, nextTick, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { invalidateNodeModels } from "@toonflow/nodes-scaffold/nodeAi";
 import { canvasShortcutFields, defaultCanvasShortcuts, getShortcutBindings, isShortcutAllowed, normalizeShortcut, type CanvasShortcuts } from "@/lib/canvasShortcuts";
+import { normalizeNodeMenu, type StoredNodeMenuItem } from "@toonflow/server/nodeMenu";
 import "element-plus/es/components/message/style/css";
 
 export const settings = ref<Record<string, unknown>>({});
@@ -57,6 +58,7 @@ export const generalSettings = computed(() => {
     return binding !== undefined && isShortcutAllowed(field, binding) ? [[field.id, binding] as const] : [];
   }));
   return {
+    nodeMenu: normalizeNodeMenu(general.nodeMenu),
     canvasCompositingEnabled: general.canvasCompositingEnabled === true,
     canvasEdgeAnimationEnabled: general.canvasEdgeAnimationEnabled !== false,
     canvasEdgeColorMode: general.canvasEdgeColorMode === "none" || general.canvasEdgeColorMode === "custom" ? general.canvasEdgeColorMode : "theme",
@@ -71,7 +73,7 @@ export const generalSettings = computed(() => {
   };
 });
 
-export function updateGeneralSettings(patch: Partial<typeof generalSettings.value>) {
+export function updateGeneralSettings(patch: Omit<Partial<typeof generalSettings.value>, "nodeMenu"> & { nodeMenu?: StoredNodeMenuItem[] }) {
   const current = settings.value.general;
   settings.value = { ...settings.value, general: { ...(current && typeof current === "object" && !Array.isArray(current) ? current : {}), ...patch } };
 }
@@ -114,7 +116,8 @@ export function saveSettings(update?: (current: Record<string, unknown>) => Reco
   const saving = saveQueue.then(async () => {
     const patch = update?.(settings.value);
     if (update && !patch) return false;
-    const { data } = await axios.put<{ code: number; data: { customProviders?: CustomProvider[]; mediaProvider?: { id: string }; modelRefreshErrors?: string[] } | null }>(
+    const requestedNodeMenu = JSON.stringify(((patch?.general ?? settings.value.general) as { nodeMenu?: unknown } | undefined)?.nodeMenu);
+    const { data } = await axios.put<{ code: number; data: { customProviders?: CustomProvider[]; mediaProvider?: { id: string }; modelRefreshErrors?: string[]; nodeMenu?: StoredNodeMenuItem[] | null } | null }>(
       "/api/settings/save", { settings: { ...settings.value, ...patch } }, { headers: { "x-toonflow-workspace": "1" } },
     );
     if (data.code !== 200) throw new Error("保存设置失败");
@@ -125,9 +128,23 @@ export function saveSettings(update?: (current: Record<string, unknown>) => Reco
       try { settings.value = { ...settings.value, ...patch, ...(providers ? { customProviders: providers } : {}) }; }
       finally { applyingSettings = false; }
     }
+    if (data.data && Object.hasOwn(data.data, "nodeMenu")
+      && requestedNodeMenu === JSON.stringify((settings.value.general as { nodeMenu?: unknown } | undefined)?.nodeMenu)
+      && requestedNodeMenu !== JSON.stringify(data.data.nodeMenu ?? undefined)) {
+      applyingSettings = true;
+      try {
+        const general = { ...(settings.value.general as Record<string, unknown> | undefined) };
+        if (data.data.nodeMenu?.length) general.nodeMenu = data.data.nodeMenu;
+        else delete general.nodeMenu;
+        settings.value = { ...settings.value, general };
+      } finally { applyingSettings = false; }
+    }
     if (data.data?.mediaProvider) {
       invalidateNodeModels("media");
       window.dispatchEvent(new CustomEvent("toonflow:plugin-installed", { detail: { type: "provider", name: data.data.mediaProvider.id } }));
+    }
+    if (patch && Object.hasOwn(patch, "mediaProviderConfigs")) {
+      window.dispatchEvent(new Event("toonflow:provider-config-changed"));
     }
     if (data.data?.modelRefreshErrors?.length) ElMessage.warning(`API Key 已保存，部分模型获取失败：${data.data.modelRefreshErrors.join("；")}`);
     return true;

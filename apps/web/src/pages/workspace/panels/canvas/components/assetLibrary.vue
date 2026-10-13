@@ -6,17 +6,17 @@
       <el-button class="toolbarButton" text :icon="IconX" title="关闭素材库" aria-label="关闭素材库" @click="visible = false" />
     </div>
     <el-scrollbar class="libraryScroll" maxHeight="min(440px, calc(100dvh - 198px))">
-      <el-tree ref="assetTree" class="assetTree" :data="displayEntries" nodeKey="path" :props="{ label: 'name' }" :currentNodeKey="folder === '.' ? undefined : folder" :filterNodeMethod="filterEntry" defaultExpandAll highlightCurrent emptyText="" @nodeClick="selectFolder">
-        <template #default="{ data }">
+      <el-tree ref="assetTree" class="assetTree" :data="displayEntries" nodeKey="path" :props="{ label: 'name' }" :icon="IconChevronRight" :currentNodeKey="folder === '.' ? undefined : folder" :filterNodeMethod="filterEntry" defaultExpandAll highlightCurrent emptyText="" @nodeClick="selectFolder">
+        <template #default="{ data, node }">
           <div class="assetEntry" :title="data.name" :draggable="data.type === 'file'" @dragstart.stop="startAssetDrag($event, data)" @dblclick.stop="openPreview(data)" @contextmenu="openItemMenu($event, data)">
-            <icon-folder-filled v-if="data.type === 'directory'" class="folderIcon" :size="30" />
+            <span v-if="data.type === 'directory'" class="fileIcon"><component :is="node.expanded && !node.isLeaf ? IconFolderOpen : IconFolder" :size="18" aria-hidden="true" /></span>
             <el-image v-else-if="mediaKind(data) === 'image'" class="assetThumbnail" :src="assetUrl(data.path)" fit="cover" loading="lazy" draggable="false" @click.stop="openPreview(data)">
-              <template #error><icon-photo :size="22" /></template>
+              <template #error><icon-photo :size="18" /></template>
             </el-image>
             <span v-else class="fileIcon">
-              <icon-music v-if="mediaKind(data) === 'audio'" :size="24" />
-              <icon-video v-else-if="mediaKind(data) === 'video'" :size="24" />
-              <icon-file v-else :size="24" />
+              <icon-music v-if="mediaKind(data) === 'audio'" :size="18" />
+              <icon-video v-else-if="mediaKind(data) === 'video'" :size="18" />
+              <icon-file v-else :size="18" />
             </span>
             <el-input v-if="data.draft" ref="folderInput" v-model="newFolderName" class="folderNameInput" size="small" aria-label="文件夹名称" :disabled="folderSaving" @click.stop @keydown.stop @keydown.enter.prevent="saveFolder" @keydown.esc.prevent="cancelFolder" @blur="saveFolder" />
             <span v-else class="assetName">{{ data.name }}</span>
@@ -64,9 +64,9 @@
         </div>
         <div class="locationPath" :title="saveLocationLabel">{{ saveLocationLabel }}</div>
         <el-scrollbar class="saveFolderScroll" maxHeight="220px">
-          <el-tree class="saveFolderTree" :data="folders" nodeKey="path" :props="{ label: 'name' }" :currentNodeKey="saveDirectory" :expandOnClickNode="false" defaultExpandAll highlightCurrent @nodeClick="(entry: AssetEntry) => { if (!saving && saveFolderName === undefined) saveDirectory = entry.path; }">
-            <template #default="{ data }">
-              <span class="saveFolderEntry"><icon-folder-filled :size="20" /><span>{{ data.name }}</span></span>
+          <el-tree class="saveFolderTree" :data="folders" nodeKey="path" :props="{ label: 'name' }" :icon="IconChevronRight" :currentNodeKey="saveDirectory" :expandOnClickNode="false" defaultExpandAll highlightCurrent @nodeClick="(entry: AssetEntry) => { if (!saving && saveFolderName === undefined) saveDirectory = entry.path; }">
+            <template #default="{ data, node }">
+              <span class="saveFolderEntry"><component :is="node.expanded && !node.isLeaf ? IconFolderOpen : IconFolder" :size="18" aria-hidden="true" /><span>{{ data.name }}</span></span>
             </template>
           </el-tree>
         </el-scrollbar>
@@ -88,7 +88,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import axios from "axios";
 import { ElMessage, ElTree, type InputInstance, type TreeNodeData } from "element-plus";
-import { IconDots, IconEye, IconFile, IconFolderFilled, IconFolderPlus, IconMusic, IconPhoto, IconSearch, IconVideo, IconX } from "@tabler/icons-vue";
+import { IconChevronRight, IconDots, IconEye, IconFile, IconFolder, IconFolderOpen, IconFolderPlus, IconMusic, IconPhoto, IconSearch, IconVideo, IconX } from "@tabler/icons-vue";
 import type { NodeOutput } from "@toonflow/nodes-scaffold/values";
 import { startAssetDrag } from "../canvasDrop";
 import useWorkspaceFiles from "@/lib/workspaceFiles";
@@ -378,7 +378,7 @@ defineExpose({ openSave });
 
   .assetTree {
     :deep(.el-tree-node__content) {
-      height: 44px;
+      height: 36px;
       padding-right: 6px;
       border-radius: var(--el-border-radius-base);
     }
@@ -395,11 +395,6 @@ defineExpose({ openSave });
         cursor: grab;
       }
 
-      .folderIcon {
-        flex-shrink: 0;
-        color: var(--el-text-color-secondary);
-      }
-
       .assetThumbnail,
       .fileIcon {
         display: flex;
@@ -410,8 +405,9 @@ defineExpose({ openSave });
         height: 32px;
         border-radius: var(--el-border-radius-base);
         color: var(--el-text-color-secondary);
-        background: var(--el-fill-color-light);
       }
+
+      .assetThumbnail { background: var(--el-fill-color-light); }
 
       .moreButton {
         flex-shrink: 0;
@@ -474,7 +470,7 @@ defineExpose({ openSave });
 
     .saveFolderTree {
       :deep(.el-tree-node__content) {
-        height: 34px;
+        height: 36px;
         border-radius: var(--el-border-radius-base);
       }
 

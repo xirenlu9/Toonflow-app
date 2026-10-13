@@ -82,13 +82,16 @@
             :ratios="ratioOptions"
             :model="selectedModel"
             :disabled="generating || deleting || !selectedModel" />
-          <el-button
-            class="sendButton"
-            :icon="generating ? IconPlayerStop : IconArrowUp"
-            :disabled="deleting || uploading || (!generating && (!generationPrompt || !selectedModel))"
-            :title="generating ? '停止生成' : '生成视频'"
-            :aria-label="generating ? '停止生成' : '生成视频'"
-            @click="generating ? generationController?.abort() : startGeneration().catch((error) => showNodeError(error, '视频生成失败'))" />
+          <div class="generationActions">
+            <mediaPrice v-if="generationInput" :input="{ ...generationInput, mediaType: 'video' }" :supported="selectedModel?.supportsPrice === true" />
+            <el-button
+              class="sendButton"
+              :icon="generating ? IconPlayerStop : IconArrowUp"
+              :disabled="deleting || uploading || (!generating && (!generationPrompt || !selectedModel))"
+              :title="generating ? '停止生成' : '生成视频'"
+              :aria-label="generating ? '停止生成' : '生成视频'"
+              @click="generating ? generationController?.abort() : startGeneration().catch((error) => showNodeError(error, '视频生成失败'))" />
+          </div>
         </div>
       </el-card>
     </template>
@@ -110,6 +113,7 @@ import videoPlayer from "@toonflow/node-video/videoPlayer";
 import videoActions from "@toonflow/node-video/videoActions";
 import referenceItem from "@toonflow/node-shared/referenceItem";
 import mediaHistory from "@toonflow/node-shared/mediaHistory";
+import mediaPrice from "@toonflow/node-shared/mediaPrice";
 import generationSettings from "./components/generationSettings.vue";
 
 defineOptions({
@@ -211,17 +215,54 @@ const generationPrompt = computed(() =>
     .filter(Boolean)
     .join("\n\n")
 );
+const generationInput = computed<Omit<NodeVideoRequest, "directory"> | undefined>(() => {
+  const choice = selectedModel.value;
+  if (!choice) return;
+  const images = refList.value.flatMap(item => item.dataType === "IMAGE" && item.value ? [{ path: item.value.url, mimeType: item.value.mimeType }] : []);
+  return {
+    providerId: choice.providerId,
+    modelId: choice.modelId,
+    prompt: generationPrompt.value,
+    mode: selectedMode.value,
+    duration: data.value.duration,
+    resolution: data.value.resolution || undefined,
+    ratio: data.value.ratio,
+    generateAudio: choice.audio === "optional" ? data.value.generateAudio : choice.audio,
+    outputDirectory: `assets/${id}`,
+    images: frameMode.value ? undefined : images,
+    firstFrame: frameMode.value && (selectedMode.value !== "startFrameOptional" || images.length > 1) ? images[0] : undefined,
+    lastFrame: frameMode.value ? images[selectedMode.value === "startFrameOptional" && images.length === 1 ? 0 : 1] : undefined,
+    videos: refList.value.flatMap(item => item.dataType === "VIDEO" && item.value ? [{ path: item.value.url, mimeType: item.value.mimeType }] : []),
+    audios: refList.value.flatMap(item => item.dataType === "AUDIO" && item.value ? [{ path: item.value.url, mimeType: item.value.mimeType }] : []),
+  };
+});
 const outputFile = computed(() => outputs.value.video?.dataType === "VIDEO" ? outputs.value.video.value : undefined);
 const previewUrl = files.useFileUrl(
   outputFile,
   (error) => showNodeError(error, "视频读取失败")
 );
 
-onMounted(() => loadModels().catch((error) => showNodeError(error, "模型读取失败")));
+onMounted(() => {
+  window.addEventListener("toonflow:plugin-installed", refreshProviderModels);
+  window.addEventListener("toonflow:provider-config-changed", refreshProviderModels);
+  void loadModels().catch(error => { if (!disposed) showNodeError(error, "模型读取失败"); });
+});
 onScopeDispose(() => {
   disposed = true;
+  window.removeEventListener("toonflow:plugin-installed", refreshProviderModels);
+  window.removeEventListener("toonflow:provider-config-changed", refreshProviderModels);
   generationController?.abort();
 });
+
+async function refreshProviderModels(event: Event) {
+  if (event.type === "toonflow:plugin-installed" && (event as CustomEvent<{ type?: string }>).detail?.type !== "provider") return;
+  try {
+    await generation;
+    if (!disposed && !deleting.value) await loadModels();
+  } catch (error) {
+    if (!disposed) showNodeError(error, "模型读取失败");
+  }
+}
 
 async function replaceOutput(event: Event) {
   const input = event.target as HTMLInputElement;
@@ -251,7 +292,7 @@ function loadModels() {
   if (modelsRequest) return modelsRequest;
   modelsLoading.value = true;
   modelsRequest = ai.getMediaModels().then((items) => {
-    if (generating.value || deleting.value) return;
+    if (disposed || generating.value || deleting.value) return;
     models.value = items.filter((item) => item.type === "video");
     // ACT: 只给空配置选默认模型，保留暂时不可用的旧选择及其参数。
     if (!data.value.model) {
@@ -267,32 +308,16 @@ function loadModels() {
 
 async function startGeneration() {
   const choice = selectedModel.value;
+  const input = generationInput.value;
   if (generating.value) throw new Error("视频正在生成，请等待完成");
   if (uploading.value) throw new Error("视频正在替换，请等待完成");
   if (deleting.value) throw new Error("节点正在删除");
-  if (!choice) throw new Error("请先选择视频模型");
+  if (!choice || !input) throw new Error("请先选择视频模型");
   if (!generationPrompt.value) throw new Error("请输入生成提示词");
   if (refList.value.some(item => item.value === undefined)) throw new Error("引用节点暂无内容，请先补充引用内容");
-  const images = refList.value.flatMap((item) => item.dataType === "IMAGE" && item.value ? [{ path: item.value.url, mimeType: item.value.mimeType }] : []);
   if (choice.mode?.length && !matchingModes.value.length) throw new Error("当前模型没有适合这些参考素材的生成模式，请更换模型或调整引用");
   const workspace = files.getWorkspaceFiles();
   const controller = new AbortController();
-  const input: Omit<NodeVideoRequest, "directory"> = {
-    providerId: choice.providerId,
-    modelId: choice.modelId,
-    prompt: generationPrompt.value,
-    mode: selectedMode.value,
-    duration: data.value.duration,
-    resolution: data.value.resolution || undefined,
-    ratio: data.value.ratio,
-    generateAudio: choice.audio === "optional" ? data.value.generateAudio : choice.audio,
-    outputDirectory: `assets/${id}`,
-    images: frameMode.value ? undefined : images,
-    firstFrame: frameMode.value && (selectedMode.value !== "startFrameOptional" || images.length > 1) ? images[0] : undefined,
-    lastFrame: frameMode.value ? images[selectedMode.value === "startFrameOptional" && images.length === 1 ? 0 : 1] : undefined,
-    videos: refList.value.flatMap((item) => item.dataType === "VIDEO" && item.value ? [{ path: item.value.url, mimeType: item.value.mimeType }] : []),
-    audios: refList.value.flatMap((item) => item.dataType === "AUDIO" && item.value ? [{ path: item.value.url, mimeType: item.value.mimeType }] : []),
-  };
   generationController = controller;
   // ACT: 工具立即返回，任务由节点持有，停止或卸载时取消。
   generation = generationState.run(() => workspace
@@ -491,17 +516,24 @@ nodeTools.register({
       }
     }
 
-    .sendButton {
-      width: 32px;
-      height: 32px;
+    .generationActions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
       margin-left: auto;
-      padding: 0;
-      --el-button-bg-color: var(--el-text-color-primary);
-      --el-button-border-color: transparent;
-      --el-button-text-color: var(--el-bg-color);
-      --el-button-hover-bg-color: var(--el-text-color-regular);
-      --el-button-hover-border-color: transparent;
-      --el-button-hover-text-color: var(--el-bg-color);
+
+      .sendButton {
+        width: 32px;
+        height: 32px;
+        margin-left: 0;
+        padding: 0;
+        --el-button-bg-color: var(--el-text-color-primary);
+        --el-button-border-color: transparent;
+        --el-button-text-color: var(--el-bg-color);
+        --el-button-hover-bg-color: var(--el-text-color-regular);
+        --el-button-hover-border-color: transparent;
+        --el-button-hover-text-color: var(--el-bg-color);
+      }
     }
   }
 }

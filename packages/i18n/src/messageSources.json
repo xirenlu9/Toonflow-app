@@ -3542,10 +3542,6 @@
   "复制到剪贴板": [
     "apps/web/src/lib/canvasShortcuts.ts"
   ],
-  "粘贴节点、文本或媒体": [
-    "apps/web/src/lib/canvasShortcuts.ts",
-    "apps/web/src/pages/workspace/panels/canvas/components/nodeMenu.vue"
-  ],
   "小键盘 +": [
     "apps/web/src/lib/canvasShortcuts.ts"
   ],
@@ -5074,6 +5070,8 @@
     "apps/web/src/pages/workspace/panels/document/components/fileTree.vue"
   ],
   "粘贴": [
+    "apps/web/src/lib/canvasShortcuts.ts",
+    "apps/web/src/pages/workspace/panels/canvas/components/nodeMenu.vue",
     "apps/web/src/pages/workspace/panels/document/components/fileTree.vue",
     "apps/desktop/src/index.ts"
   ],
@@ -8017,5 +8015,60 @@
   ],
   "FFmpeg 不能操作悬空符号链接": [
     "packages/ffmpeg/src/runtime.ts"
+  ],
+  "点击键帽录制，Esc 退出；右侧 × 取消绑定，箭头菜单可选择无需按键。": [
+    "apps/web/src/components/settings/panels/general/canvasShortcuts.vue"
+  ],
+  "使用按键代号，如 Ctrl+KeyG / Alt+KeyG；None 表示无需按键，可写 None / Space；留空取消绑定，回车或移开焦点保存。": [
+    "apps/web/src/components/settings/panels/general/canvasShortcuts.vue"
+  ],
+  "将画布平移设为无需按键前，请先把框选节点改成 Shift 等按键。": [
+    "apps/web/src/components/settings/panels/general/canvasShortcuts.vue"
+  ],
+  "触摸板双指滑动": [
+    "apps/web/src/components/settings/panels/general/canvasShortcuts.vue"
+  ],
+  "跟随滚轮配置": [
+    "apps/web/src/components/settings/panels/general/canvasShortcuts.vue"
+  ],
+  "中键拖动": [
+    "apps/web/src/components/settings/panels/general/canvasShortcuts.vue"
+  ],
+  "按配置滚动鼠标滚轮": [
+    "apps/web/src/components/settings/panels/general/canvasShortcuts.vue"
+  ],
+  "无需按键时，仅平移空白处": [
+    "apps/web/src/components/settings/panels/general/canvasShortcuts.vue"
+  ],
+  "左键拖动空白处框选": [
+    "apps/web/src/components/settings/panels/general/canvasShortcuts.vue"
+  ],
+  "左键点击追加或取消选择": [
+    "apps/web/src/components/settings/panels/general/canvasShortcuts.vue"
+  ],
+  "设置{0}": [
+    "apps/web/src/components/settings/panels/general/keyInput.vue"
+  ],
+  "无需按键或取消绑定": [
+    "apps/web/src/components/settings/panels/general/keyInput.vue"
+  ],
+  "无需按键": [
+    "apps/web/src/lib/canvasShortcuts.ts",
+    "apps/web/src/components/settings/panels/general/keyInput.vue"
+  ],
+  "滚轮缩放": [
+    "apps/web/src/lib/canvasShortcuts.ts"
+  ],
+  "画布平移": [
+    "apps/web/src/lib/canvasShortcuts.ts"
+  ],
+  "框选节点": [
+    "apps/web/src/lib/canvasShortcuts.ts"
+  ],
+  "追加选择": [
+    "apps/web/src/lib/canvasShortcuts.ts"
+  ],
+  "追加选择只绑定修饰键，例如 Ctrl 或 Meta。": [
+    "apps/web/src/components/settings/panels/general/canvasShortcuts.vue"
   ]
 }

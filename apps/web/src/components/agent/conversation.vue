@@ -20,7 +20,7 @@
                   <icon-arrow-up-right class="suggestionArrow" :size="15" aria-hidden="true" />
                 </el-button>
               </div>
-              <p class="welcomeHint">点击填入提示，也可以直接输入，或粘贴图片、视频。</p>
+              <p class="welcomeHint">点击填入提示，也可以直接输入，或添加图片、视频和文档。</p>
             </section>
           </template>
         </chat-item>
@@ -41,6 +41,7 @@
                   <div v-if="item.report" class="reportHeader"><icon-users-group :size="14" />{{ item.report.name }} 上报</div>
                   <template v-for="part in item.parts" :key="part.id">
                     <chat-reasoning v-if="part.type === 'thinking' && part.content" class="messageReasoning" :collapsed="part.collapsed ?? true" expandIconPlacement="left" @update:collapsed="part.collapsed = $event">
+                      <template #expandIcon><component :is="(part.collapsed ?? true) ? IconChevronRight : IconChevronDown" :size="14" aria-hidden="true" /></template>
                       <template #header>
                         <span class="reasoningHeader">
                           <icon-atom :size="14" />
@@ -82,7 +83,12 @@
       <el-icon class="is-loading" aria-hidden="true"><icon-loader-2 :size="14" /></el-icon>
       <span>正在压缩上下文…</span>
     </div>
-    <div class="messageInput">
+    <div class="messageInput" :class="{ draggingAttachments }" @dragenter.capture="dragEnterAttachments" @dragover.capture="dragOverAttachments" @dragleave.capture="dragLeaveAttachments" @drop.capture="dropAttachments">
+      <div v-if="draggingAttachments" class="attachmentDropHint" role="status">
+        <icon-paperclip :size="20" aria-hidden="true" />
+        <span>松开添加附件</span>
+        <small>图片、视频、文档或代码文件</small>
+      </div>
       <div v-if="editingId" class="editingBanner"><span>编辑消息</span><el-button text size="small" :disabled="busy" @click="cancelEdit">取消</el-button></div>
       <div
         class="senderResizeHandle"
@@ -108,6 +114,8 @@
       <mentionContent ref="draftMentionPreview" :mentions="draftMentions" :directory="directory" removable @remove="removeDraftMention" />
       <div class="senderActions">
         <modelPopover v-model="selectedModel" v-model:reasoningEffort="reasoningEffort" :active="active" :disabled="disabled" />
+        <input ref="attachmentInput" type="file" :accept="attachmentAccept" multiple hidden :disabled="locked" @change="selectAttachments" />
+        <el-button text circle :disabled="locked" aria-label="添加附件" title="添加附件" @click="attachmentInput?.click()"><icon-paperclip :size="16" /></el-button>
         <mentionMenu ref="mentionMenuRef" :directory="directory" :active="active" :disabled="locked || !directory" :query="mentionQuery" :editor="senderElement" :currentCanvasId="createCanvasContext?.()?.id" @open="captureMentionPosition" @select="insertMentions" @dismiss="mentionQuery = undefined" />
         <skillMenu ref="skillMenuRef" :directory="directory" :active="active" :disabled="locked || !directory" :query="skillQuery" :editor="senderElement" @select="selectSkill" @dismiss="skillQuery = undefined" />
         <el-popover
@@ -120,7 +128,7 @@
           popperClass="agentContextPopover">
           <template #reference>
             <el-button class="contextButton" text circle aria-label="查看上下文用量" title="查看上下文用量">
-              <icon-circle-dashed :size="14" />
+              <icon-circle-dashed :size="16" />
             </el-button>
           </template>
           <div class="contextUsage">
@@ -157,11 +165,12 @@ import { computed, inject, nextTick, reactive, ref, shallowRef, watch, type Comp
 import { defaultRangeExtractor, measureElement, observeElementRect, useVirtualizer } from "@tanstack/vue-virtual";
 import axios from "axios";
 import {
-  IconArrowUp, IconArrowDown, IconAtom, IconCopy,
+  IconArrowUp, IconArrowDown, IconAtom, IconChevronDown, IconChevronRight, IconCopy,
   IconCircleDashed, IconPencil, IconPlayerStopFilled, IconX, IconLoader2,
-  IconTrash, IconLayoutGrid, IconMovie, IconPhoto, IconArrowUpRight, IconUsersGroup,
+  IconTrash, IconVector, IconMovie, IconPhoto, IconArrowUpRight, IconUsersGroup, IconPaperclip,
 } from "@tabler/icons-vue";
 import { ElMessage } from "element-plus";
+import { getReadableFileExtension, getReadableFileMimeType, readableFileAccept } from "@toonflow/server/documentFormats";
 import logoUrl from "@toonflow/assets/logo.svg";
 import modelPopover from "@/components/modelPopover.vue";
 import skillMenu from "./skillMenu.vue";
@@ -196,6 +205,10 @@ const emit = defineEmits<{ session: [file: string]; sent: [prompt: string]; even
 const workspaceStore = useWorkspaceStore();
 const directory = workspaceStore.project?.directory;
 const draftAttachments = ref<AgentAttachment[]>([]);
+const attachmentInput = ref<HTMLInputElement>();
+const draggingAttachments = ref(false);
+let attachmentDragDepth = 0;
+const attachmentAccept = `image/*,video/*,${readableFileAccept}`;
 const createCanvasContext = inject<(() => CanvasContext | undefined) | undefined>("canvas", undefined);
 const messages = ref<AgentMessage[]>((props.initialSession?.messages ?? []).map(message => ({ ...message })));
 const browserMessages = computed(() => {
@@ -334,11 +347,12 @@ const contextWindow = computed(() => contextUsage.value?.contextWindow ?? select
 const contextPercent = computed(() => (contextUsage.value?.tokens ?? 0) / contextWindow.value * 100);
 const inputTokens = computed(() => stats.value ? stats.value.tokens.input + stats.value.tokens.cacheRead + stats.value.tokens.cacheWrite : 0);
 const welcomeSuggestions = [
-  { label: "搭建创作画布", description: "把创意串成清晰的节点流程", icon: IconLayoutGrid, prompt: "帮我搭建一个创作画布，先和我确认需要的节点与流程。" },
+  { label: "搭建创作画布", description: "把创意串成清晰的节点流程", icon: IconVector, prompt: "帮我搭建一个创作画布，先和我确认需要的节点与流程。" },
   { label: "梳理故事分镜", description: "拆解故事，安排画面与镜头", icon: IconMovie, prompt: "帮我把故事整理成分镜，先和我确认故事内容、时长和画面风格。" },
   { label: "生成图片素材", description: "为角色和场景寻找视觉方向", icon: IconPhoto, prompt: "帮我生成图片素材，先和我确认画面内容、风格和使用的模型。" },
 ];
 watch([locked, () => props.active], ([locked, active]) => {
+  if (!active || locked) resetAttachmentDrag();
   if (!active || locked) sender?.disable();
   else sender?.enable();
 });
@@ -565,7 +579,9 @@ async function uploadAttachments(attachments: AgentAttachment[], directory: stri
   }
   for (const attachment of attachments) {
     if (!attachment.file) continue;
-    const extension = attachment.name.match(/\.[a-zA-Z0-9]{1,10}$/)?.[0].toLowerCase() ?? "";
+    attachment.mimeType = getReadableFileMimeType(attachment.name, attachment.mimeType) ?? attachment.mimeType;
+    const readableExtension = getReadableFileExtension(attachment.name, attachment.mimeType);
+    const extension = readableExtension ? `.${readableExtension}` : attachment.name.match(/\.[a-zA-Z0-9]{1,10}$/)?.[0].toLowerCase() ?? "";
     const path = `assets/chat/${crypto.randomUUID()}${extension}`;
     await files.write(path, attachment.file, true, signal);
     attachment.path = path;
@@ -761,17 +777,64 @@ function pasteAttachments(event: ClipboardEvent) {
   if (!files.length) return;
   event.preventDefault();
   event.stopImmediatePropagation();
+  addAttachments(files);
+}
+
+function selectAttachments(event: Event) {
+  const input = event.target as HTMLInputElement;
+  addAttachments(Array.from(input.files ?? []));
+  input.value = "";
+}
+
+function resetAttachmentDrag() {
+  attachmentDragDepth = 0;
+  draggingAttachments.value = false;
+}
+
+function dragEnterAttachments(event: DragEvent) {
+  if (!event.dataTransfer?.types.includes("Files")) return;
+  attachmentDragDepth++;
+  dragOverAttachments(event);
+}
+
+function dragOverAttachments(event: DragEvent) {
+  if (!event.dataTransfer?.types.includes("Files")) return;
+  event.preventDefault();
+  event.stopPropagation();
+  draggingAttachments.value = !locked.value && props.active;
+  if (draggingAttachments.value) attachmentDragDepth = Math.max(1, attachmentDragDepth);
+  event.dataTransfer.dropEffect = draggingAttachments.value ? "copy" : "none";
+}
+
+function dragLeaveAttachments(event: DragEvent) {
+  if (!attachmentDragDepth) return;
+  event.stopPropagation();
+  if (--attachmentDragDepth === 0) resetAttachmentDrag();
+}
+
+function dropAttachments(event: DragEvent) {
+  resetAttachmentDrag();
+  const files = Array.from(event.dataTransfer?.files ?? []);
+  if (!files.length) return;
+  event.preventDefault();
+  event.stopPropagation();
+  addAttachments(files);
+}
+
+function addAttachments(files: File[]) {
   if (locked.value) return;
   for (const file of files) {
-    if (!/^(image|video)\//.test(file.type) && file.type !== "text/plain") {
-      ElMessage.warning("只支持图片、视频和纯文本文件");
+    const readableMimeType = getReadableFileMimeType(file.name, file.type);
+    const mimeType = readableMimeType ?? file.type.split(";")[0]!.trim().toLowerCase();
+    if (!readableMimeType && !/^(image|video)\//.test(mimeType)) {
+      ElMessage.warning("只支持图片、视频和受支持的文本或文档文件");
       continue;
     }
     if (!file.size || file.size > 100 * 1024 * 1024) {
       ElMessage.warning("附件不能为空且不能超过 100 MB");
       continue;
     }
-    if (file.type === "text/plain" && file.size > 400000) {
+    if (mimeType === "text/plain" && file.size > 400000) {
       ElMessage.warning("文本附件不能超过 400000 字节");
       continue;
     }
@@ -779,7 +842,7 @@ function pasteAttachments(event: ClipboardEvent) {
       ElMessage.warning("每条消息最多添加 20 个附件");
       break;
     }
-    draftAttachments.value.push({ name: file.name, path: "", mimeType: file.type, file });
+    draftAttachments.value.push({ name: file.name, path: "", mimeType, file });
   }
 }
 
@@ -830,6 +893,9 @@ watch(senderElement, (element, _previous, onCleanup) => {
   editor.setAttribute("aria-label", translate("消息"));
   editor.setAttribute("aria-multiline", "true");
   element.addEventListener("paste", pasteAttachments, true);
+  window.addEventListener("dragend", resetAttachmentDrag, true);
+  window.addEventListener("drop", resetAttachmentDrag, true);
+  window.addEventListener("blur", resetAttachmentDrag);
   const updateCursor = (event: Event) => { if (!(event instanceof KeyboardEvent) || event.key !== "Escape") updateMentionQuery(); };
   editor.addEventListener("keyup", updateCursor);
   editor.addEventListener("compositionend", updateCursor);
@@ -839,6 +905,10 @@ watch(senderElement, (element, _previous, onCleanup) => {
     sender = undefined;
     senderResize = undefined;
     element.removeEventListener("paste", pasteAttachments, true);
+    window.removeEventListener("dragend", resetAttachmentDrag, true);
+    window.removeEventListener("drop", resetAttachmentDrag, true);
+    window.removeEventListener("blur", resetAttachmentDrag);
+    resetAttachmentDrag();
     editor.removeEventListener("keyup", updateCursor);
     editor.removeEventListener("compositionend", updateCursor);
     instance.destroy();
@@ -1045,14 +1115,7 @@ watch(() => !props.initialSession?.parentFile && !!workspaceStore.pendingAgentMe
             width: 16px;
             height: 20px;
             margin-right: 6px;
-
-            .t-fake-arrow {
-              transform: rotate(-90deg);
-            }
-
-            &.t-collapse-panel__icon--active .t-fake-arrow {
-              transform: rotate(0deg);
-            }
+            color: var(--el-text-color-secondary);
           }
 
           .t-collapse-panel__body {
@@ -1132,6 +1195,37 @@ watch(() => !props.initialSession?.parentFile && !!workspaceStore.pendingAgentMe
 
     &:focus-within {
       border-color: var(--el-color-primary-light-5);
+    }
+
+    &.draggingAttachments {
+      border-color: var(--el-color-primary-light-5);
+    }
+
+    .attachmentDropHint {
+      position: absolute;
+      inset: 0;
+      z-index: 13;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      border-radius: inherit;
+      background: var(--el-bg-color);
+      color: var(--el-text-color-primary);
+      font-size: 14px;
+      font-weight: 500;
+      pointer-events: none;
+
+      > svg {
+        color: var(--el-text-color-secondary);
+      }
+
+      small {
+        color: var(--el-text-color-secondary);
+        font-size: 12px;
+        font-weight: 400;
+      }
     }
 
     .senderResizeHandle {

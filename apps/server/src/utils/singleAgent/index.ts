@@ -1,10 +1,12 @@
 import { dirname, join } from "node:path";
+import { mkdir, rm } from "@toonflow/file";
 import { t } from "@/lib/i18n";
 import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { AgentSession, CreateAgentSessionOptions, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { QuestionContext } from "@toonflow/tools-scaffold/runtime";
 import { createAgentToolContext } from "@/agent/tools";
 import { createAgentModel } from "@/agent/runtime/model";
+import { configureAgentRequests } from "@/agent/runtime/requests";
 import { getToolResultText } from "@/agent/runtime/sessions";
 import { createQuestionContext, answerQuestion } from "@/agent/bridge/question";
 import { listTools, loadTool, validateToolConfig } from "@/utils/plugins/tools";
@@ -109,6 +111,7 @@ export async function create(options: {
   signal?.throwIfAborted();
   const id = crypto.randomUUID();
   const cwd = options.directory ?? join(dirname(conf.path), "singleAgent", id);
+  if (!options.directory) await mkdir(cwd, { recursive: true });
   const session: SingleSession = {
     id, cwd, workspaceAvailable: !!options.directory, history: SessionManager.inMemory(cwd),
     systemPrompt: options.systemPrompt ?? "", tools: [], closed: false,
@@ -176,6 +179,7 @@ export async function run(options: {
   const stopSdk = () => { void active.session?.abort(); };
   active.controller.signal.addEventListener("abort", stopSdk, { once: true });
   const toolResults: SingleAgentResult["toolResults"] = [];
+  const imageToolResults = new Map<string, SingleAgentToolResult>();
   try {
     onStart?.();
     setStatus(active, "running");
@@ -190,7 +194,12 @@ export async function run(options: {
         await waitForResume(active);
         active.activeActions++;
         const signal = args[2] ? AbortSignal.any([args[2], active.controller.signal]) : active.controller.signal;
-        try { return await tool.execute(args[0], args[1], signal, args[3], args[4]); }
+        try {
+          const result = await tool.execute(args[0], args[1], signal, args[3], args[4]);
+          // 对外工具结果保留图片；会话内部由共享图片入口保存附件引用。
+          if (result.content.some(part => part.type === "image")) imageToolResults.set(args[0], result);
+          return result;
+        }
         finally { finishAction(active); }
       },
     }));
@@ -212,6 +221,7 @@ export async function run(options: {
       thinkingLevel, sessionManager: state.history, settingsManager, resourceLoader,
       tools: tools.map(tool => tool.name), customTools: tools,
     });
+    configureAgentRequests(session);
     active.session = session;
     active.controller.signal.throwIfAborted();
     const streamFunction = session.agent.streamFunction;
@@ -259,7 +269,8 @@ export async function run(options: {
           ...(event.type === "tool_execution_start" ? { args: event.args } : { result: getToolResultText(result!.content) }),
         } });
         if (event.type === "tool_execution_end") {
-          const result = { id: event.toolCallId, name: event.toolName, result: event.result };
+          const result = { id: event.toolCallId, name: event.toolName, result: event.isError ? event.result : imageToolResults.get(event.toolCallId) ?? event.result };
+          imageToolResults.delete(event.toolCallId);
           toolResults.push(result);
           send({ type: "toolResult", ...result });
         }
@@ -354,7 +365,11 @@ export async function close(sessionId: string) {
     try {
       try { await browserRuntime.closeOwner(session.cwd, session.history.getSessionId()); }
       finally { await active?.finished.promise; }
-    } finally { sessions.delete(sessionId); }
+    } finally {
+      sessions.delete(sessionId);
+      // 仅清理 create 分配的私有目录，用户提供的工作区由用户管理。
+      if (!session.workspaceAvailable) await rm(join(dirname(conf.path), "singleAgent", session.id), { recursive: true, force: true });
+    }
   })();
   return session.closing;
 }

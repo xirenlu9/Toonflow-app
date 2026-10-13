@@ -15,7 +15,7 @@
           <span class="modelName">{{ selectedModelChoice?.label ?? "选择模型" }}</span>
           ·
           <span class="reasoningLabel">{{ reasoningLabel }}</span>
-          <icon-chevron-down :size="12" />
+          <component :is="visible ? IconChevronUp : IconChevronDown" :size="14" aria-hidden="true" />
         </el-button>
       </template>
       <el-form class="modelOptions" labelPosition="top">
@@ -42,7 +42,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { IconChevronDown } from "@tabler/icons-vue";
+import { IconChevronDown, IconChevronUp } from "@tabler/icons-vue";
 import { modelIcon } from "@toonflow/model-icons";
 import { customProviders, modelChoices } from "@/stores/settings";
 

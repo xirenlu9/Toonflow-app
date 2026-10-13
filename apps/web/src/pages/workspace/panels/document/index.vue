@@ -17,7 +17,7 @@ import { settings, settingsStorage } from "@/stores/settings";
 import useWorkspaceFiles from "@/lib/workspaceFiles";
 import { waitForControlValue } from "@/lib/mcpControl";
 import { isCanvasFile } from "@/pages/workspace/canvasFile";
-import type { DocumentNode } from "../canvas/canvasFiles";
+import type { DocumentNode, DocumentNodeOptions } from "../canvas/canvasFiles";
 import fileTree, { type FileAction, type FileTreeItem, type TreeSelection } from "./components/fileTree.vue";
 import openWithDialog from "./components/openWithDialog.vue";
 import quickOpen from "./components/quickOpen.vue";
@@ -31,7 +31,8 @@ import "dockview-vue/dist/styles/dockview.css";
 
 defineOptions({ components: { fileTree, editorHost } });
 const props = defineProps<{
-  readNodes: (directory: string, options?: { canvasPath?: string; signal?: AbortSignal; onError?: (path: string, error: unknown) => void }) => Promise<DocumentNode[]>;
+  readNodes: (directory: string, options?: DocumentNodeOptions) => Promise<DocumentNode[]>;
+  focusNode: (directory: string, canvasPath: string, nodeId: string) => Promise<void>;
   readNode: (directory: string, canvasPath: string, nodeId: string) => Promise<{ label: string; outputs: { id: string; label: string; text: string }[] }>;
   saveNode: (directory: string, canvasPath: string, nodeId: string, handleId: string, text: string, expectedText?: string) => Promise<void>;
   mountNode: (directory: string, canvasPath: string, nodeId: string, target: HTMLElement) => Promise<() => void>;
@@ -165,7 +166,7 @@ function selectionOf(resource: ExtResource): TreeSelection {
 function onLayoutReady({ api }: DockviewReadyEvent) {
   if (!directory) return;
   const tree = api.addPanel({ id: "files", component: "fileTree", initialWidth: treeWidth, minimumWidth: 180,
-    params: { directory, selection: activeSelection, executeFileAction, readNodes: props.readNodes,
+    params: { directory, selection: activeSelection, executeFileAction, readNodes: props.readNodes, focusNode: props.focusNode,
       open: (selection: TreeSelection, preview = false) => { void openSelection(selection, lifetime.signal, false, undefined, preview).catch(reportError); },
       quickOpen: () => quickOpenRef.value?.open(), search: () => searchRef.value?.open() },
   });

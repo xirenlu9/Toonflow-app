@@ -1,4 +1,5 @@
 import { setLocaleFallback, t, translateMessage } from "@toonflow/server/i18n";
+import { setRuntimeHost } from "@toonflow/server/platform";
 import { detectLocale, normalizeLocale } from "@toonflow/i18n";
 import { execFile } from "node:child_process";
 import { existsSync, writeAtomicSync } from "@toonflow/file";
@@ -123,7 +124,7 @@ async function start() {
       splash?.close();
       return;
     }
-    process.env.toonflowDesktop = "1";
+    setRuntimeHost("desktop");
     if (process.platform === "win32") void startRunningHubH3Service().catch(error => console.error("自动启动本机 RunningHub H3 服务失败：", error));
     const { createApp } = await import("@toonflow/server/app");
     const { closeBrowsers } = await import("@toonflow/server/browser");

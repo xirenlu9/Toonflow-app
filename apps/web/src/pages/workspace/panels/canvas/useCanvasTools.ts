@@ -9,7 +9,8 @@ export function useCanvasTools(options: {
   availableNodes: Ref<{ type: string; label: string }[]>;
   flushSave(): Promise<void>;
   menu(): {
-    getCanvases(): { id: string; name: string }[];
+    getCanvases(signal?: AbortSignal): Promise<{ id: string; name: string }[]>;
+    peekCanvases(): { id: string; name: string }[];
     addCanvas(name?: string, signal?: AbortSignal): Promise<string>;
     switchCanvas(canvasId: string, signal?: AbortSignal): Promise<void>;
     renameCanvas(canvasId: string, name: string, signal?: AbortSignal): Promise<void>;
@@ -32,7 +33,7 @@ export function useCanvasTools(options: {
     selectedCount: () => flow.getSelectedNodes.value.length,
     nodeRevision: () => nodeRevision,
     edgeRevision: () => edgeRevision,
-    canvases: () => options.menu().getCanvases(),
+    canvases: signal => options.menu().getCanvases(signal),
     nodeTypes: () => options.availableNodes.value,
     nodeTools: getNodeTools,
   });
@@ -112,6 +113,7 @@ export function useCanvasTools(options: {
 
   async function execute(request: CanvasToolCall, signal: AbortSignal, canvasId: string): Promise<unknown> {
     signal.throwIfAborted();
+    if (!canvasId && !["getCanvas", "addCanvas", "switchCanvas"].includes(request.name)) throw new Error("请先选择画布");
     if (isCanvasRead(request.name)) {
       await nextTick();
       signal.throwIfAborted();
@@ -130,7 +132,7 @@ export function useCanvasTools(options: {
       case "renameCanvas": {
         const { canvasId: targetId = canvasId, name } = canvasSchemas.renameCanvas.parse(request.args);
         const nextName = name.trim();
-        const renamedId = options.menu().getCanvases().find(canvas => canvas.id === targetId)?.name === nextName
+        const renamedId = options.menu().peekCanvases().find(canvas => canvas.id === targetId)?.name === nextName
           ? targetId : `${targetId.slice(0, targetId.lastIndexOf("/") + 1)}${nextName}.json`;
         await options.menu().renameCanvas(targetId, nextName, signal);
         return targetId === canvasId ? renamedId : canvasId;

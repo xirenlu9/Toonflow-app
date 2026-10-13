@@ -11,11 +11,13 @@ export default {
   },
   build: {
     mainProcess: "bun",
-    // ACT: Photon 按包所在目录读取 WASM，保留原包，避免内联后引用构建机路径。
-    bun: { entrypoint: "apps/desktop/src/index.ts", minify: true, external: ["@silvia-odwyer/photon-node"] },
+    // ACT: Photon 与 anydoc 按包所在目录读取 WASM/原生文件，保留原包，避免引用构建机路径。
+    bun: { entrypoint: "apps/desktop/src/index.ts", minify: true, external: ["@silvia-odwyer/photon-node", "@firecrawl/anydoc", "@firecrawl/anydoc-wasm"] },
     copy: {
       "build/desktop/photon": "bun/node_modules/@silvia-odwyer/photon-node",
+      "build/desktop/node_modules/@firecrawl": "bun/node_modules/@firecrawl",
       ...(process.platform === "win32" ? {
+        "build/desktop/protocol/startupLauncher.exe": "startupLauncher.exe",
         "build/desktop/protocol/protocolLauncher.exe": "protocolLauncher.exe",
         "build/desktop/protocol/saveFileDialog.exe": "saveFileDialog.exe",
         "build/desktop/protocol/updateHelper.exe": "updateHelper.exe",
