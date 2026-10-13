@@ -103,7 +103,7 @@ export default {
     }
 
     // ACT: 单次生成最多等待 10 分钟。
-    const signal = AbortSignal.any([AbortSignal.timeout(10 * 60_000), ...(this.signal ? [this.signal] : [])]);
+    const signal = AbortSignal.any([AbortSignal.timeout(30 * 60_000), ...(this.signal ? [this.signal] : [])]);
     const submitResponse = await this.tool.fetch(`${baseUrl}/v2/video_generation`, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },

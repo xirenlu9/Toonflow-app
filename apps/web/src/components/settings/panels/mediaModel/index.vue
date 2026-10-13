@@ -32,7 +32,10 @@
             <el-text size="small" type="info">{{ item.models.length }} 个模型</el-text>
           </div>
           <el-space class="itemActions" wrap>
-            <el-button v-if="isH3Provider(item)" type="primary" plain @click="openH3Manager">管理 Key 池</el-button>
+            <template v-if="isH3Provider(item)">
+              <el-button :type="h3ServiceRunning ? 'warning' : 'success'" :loading="h3Switching" :disabled="h3Switching || h3Summary?.executor.storageBlocked" title="暂停只阻止新的提交，已经受理的视频仍继续跟踪" @click="toggleH3Service">{{ h3ServiceRunning ? "关闭/暂停服务" : "开启/恢复服务" }}</el-button>
+              <el-button type="primary" plain :disabled="h3Switching" @click="openH3Manager">管理 Key 池</el-button>
+            </template>
             <template v-else>
               <el-button v-if="item.modelsUrl" text :icon="IconDownload" :loading="fetchingFile === item.fileName" :disabled="!!fetchingFile || !!deletingFile || !!item.loadError || !item.revision" @click="fetchModels(item)">获取模型</el-button>
               <el-button text :icon="IconEdit" :disabled="!!fetchingFile || !!deletingFile || !!item.loadError" @click="editProvider(item)">编辑模型</el-button>
@@ -57,7 +60,7 @@
 <script setup lang="ts">
 import axios from "axios";
 import { computed, defineAsyncComponent, onMounted, onBeforeUnmount, ref, shallowRef, watch, type Component } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { IconPlus, IconSettings, IconEdit, IconTrash, IconDownload } from "@tabler/icons-vue";
 import logoUrl from "@toonflow/assets/logo.svg";
 import type { MediaProvider } from "./types";
@@ -79,11 +82,13 @@ const editingProvider = ref<MediaProvider>();
 const deletingFile = ref("");
 const fetchingFile = ref("");
 const h3ManagerVisible = ref(false);
+const h3Switching = ref(false);
 const h3Summary = ref<{
   service: { online: boolean; executor: string };
-  executor: { paused: boolean; storageBlocked: boolean; activeTasks: number };
+  executor: { paused: boolean; storageBlocked: boolean; activeTasks: number; queuedTasks?: number; canControl?: boolean };
   keys: { enabled: boolean }[];
 } | null>(null);
+const h3ServiceRunning = computed(() => !!h3Summary.value?.service.online && !h3Summary.value.executor.paused && !h3Summary.value.executor.storageBlocked);
 let loadRequest = 0;
 
 function isH3Provider(provider: MediaProvider) { return provider.id === "runningHubH3"; }
@@ -135,11 +140,40 @@ async function loadProviders() {
 async function loadH3Summary() {
   try {
     const { data } = await axios.get<{ code: number; data: NonNullable<typeof h3Summary.value>; message: string }>("/api/runninghub-h3/overview", {
-      timeout: 5000,
+      timeout: 15000,
       headers: { "x-toonflow-desktop": "1", "Cache-Control": "no-store", Pragma: "no-cache" },
     });
     h3Summary.value = data.code === 200 ? data.data : null;
   } catch { h3Summary.value = null; }
+  return h3Summary.value;
+}
+
+async function toggleH3Service() {
+  if (h3Switching.value) return;
+  const action = h3ServiceRunning.value ? "pause" : "resume";
+  h3Switching.value = true;
+  const options = { timeout: 90000, headers: { "x-toonflow-desktop": "1", "Cache-Control": "no-store", Pragma: "no-cache" } };
+  try {
+    let state = await loadH3Summary();
+    if (!state?.service.online) {
+      if (action === "pause") { ElMessage.info("本机服务已离线，无需重复暂停"); return; }
+      await axios.post("/api/runninghub-h3/start", {}, options);
+      state = await loadH3Summary();
+    }
+    if (!state?.service.online) throw new Error("本机 H3 服务未就绪，请打开 Key 池管理查看启动提示");
+    if (!state.executor.canControl) throw new Error("当前 H3 Skill 不支持执行器控制，请更新本机 Skill");
+    if (action === "resume" && (state.executor.queuedTasks ?? 0) > 0) {
+      await ElMessageBox.confirm(`已有 ${state.executor.queuedTasks} 个待提交任务。恢复将继续处理这些任务，可能消耗额度，不会创建新任务。是否继续？`, "恢复 H3 队列", { type: "warning", confirmButtonText: "确认恢复", cancelButtonText: "保持暂停" });
+    }
+    const { data } = await axios.post<{ code: number; message: string }>(`/api/runninghub-h3/executor/${action}`, {}, options);
+    if (data.code !== 200) throw new Error(data.message || "本机 H3 服务控制失败");
+    ElMessage.success(action === "pause" ? "服务已关闭/暂停；已受理任务仍继续跟踪" : "服务已开启/恢复");
+  } catch (error) {
+    if (error !== "cancel" && error !== "close") ElMessage.error(axios.isAxiosError(error) ? error.response?.data?.message || error.message : error instanceof Error ? error.message : "本机 H3 服务控制失败");
+  } finally {
+    await loadH3Summary();
+    h3Switching.value = false;
+  }
 }
 
 function openH3Manager() {

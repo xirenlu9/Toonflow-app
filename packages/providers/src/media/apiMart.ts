@@ -227,7 +227,7 @@ export default {
     const baseUrl = getBaseUrl(this.config.isOverseas);
     const lowerName = request.model.toLowerCase();
     // ACT: 单次生成最多等待 10 分钟。
-    const signal = AbortSignal.any([AbortSignal.timeout(10 * 60_000), ...(this.signal ? [this.signal] : [])]);
+    const signal = AbortSignal.any([AbortSignal.timeout(30 * 60_000), ...(this.signal ? [this.signal] : [])]);
 
     const imageUrls: string[] = [];
     for (const image of request.images ?? []) imageUrls.push(await uploadImage(this, apiKey, baseUrl, image, signal));
@@ -272,7 +272,7 @@ export default {
     const baseUrl = getBaseUrl(this.config.isOverseas);
     const lowerName = request.model.toLowerCase();
     // ACT: 单次生成最多等待 30 分钟。
-    const signal = AbortSignal.any([AbortSignal.timeout(30 * 60_000), ...(this.signal ? [this.signal] : [])]);
+    const signal = AbortSignal.any([AbortSignal.timeout(90 * 60_000), ...(this.signal ? [this.signal] : [])]);
 
     const imageUrls: string[] = [];
     for (const image of request.images ?? []) imageUrls.push(await uploadImage(this, apiKey, baseUrl, image, signal));

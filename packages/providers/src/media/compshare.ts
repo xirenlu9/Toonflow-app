@@ -85,18 +85,18 @@ const H3_BASE = "https://cp.compshare.cn";
 /** MiniMax H3 任务轮询间隔（文档建议 3 秒一次）。 */
 const H3_POLL_INTERVAL = 3000;
 /** MiniMax H3 任务总等待上限（毫秒）。 */
-const H3_TOTAL_TIMEOUT = 1800000;
+const H3_TOTAL_TIMEOUT = 5400000;
 
 const IMAGE_RATIOS = ["1:1", "3:2", "2:3", "4:3", "3:4", "4:5", "5:4", "16:9", "9:16", "21:9"];
 
 /** 图片生成总超时（毫秒）。 */
-const IMAGE_TIMEOUT = 300000;
+const IMAGE_TIMEOUT = 900000;
 /** 视频提交请求超时（毫秒）。 */
-const SUBMIT_TIMEOUT = 120000;
+const SUBMIT_TIMEOUT = 360000;
 /** 单个状态查询请求超时（毫秒）。 */
-const STATUS_TIMEOUT = 60000;
+const STATUS_TIMEOUT = 180000;
 /** 视频任务总等待上限（毫秒）。 */
-const VIDEO_TOTAL_TIMEOUT = 1800000;
+const VIDEO_TOTAL_TIMEOUT = 5400000;
 /** 状态轮询间隔（毫秒）。 */
 const POLL_INTERVAL = 5000;
 

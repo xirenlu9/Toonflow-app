@@ -44,7 +44,7 @@ export async function runningHubH3ServiceRequest(path: string, method: ServiceMe
       method,
       headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(45000),
       redirect: "error",
     });
   } catch {
@@ -68,7 +68,7 @@ export function createRunningHubH3Tools(cwd: string, signal?: AbortSignal): NonN
         method: body === undefined ? "GET" : "POST",
         headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: signal && !ignoreOperationSignal ? AbortSignal.any([signal, AbortSignal.timeout(45000)]) : AbortSignal.timeout(45000),
+        signal: signal && !ignoreOperationSignal ? AbortSignal.any([signal, AbortSignal.timeout(135000)]) : AbortSignal.timeout(135000),
         redirect: "error",
       });
     } catch (error) {
@@ -106,7 +106,7 @@ export function createRunningHubH3Tools(cwd: string, signal?: AbortSignal): NonN
     async generateVideo(request: VideoRequest): Promise<MediaAsset[]> {
       const base = serviceBase();
       const token = await serviceToken();
-      const health = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(5000), redirect: "error" });
+      const health = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(15000), redirect: "error" });
       const healthData = await health.json().catch(() => ({})) as { service?: string; executor?: string };
       if (!health.ok || healthData.service !== serviceName) throw new Error("本机 RunningHub H3 服务未就绪");
       if (healthData.executor !== "online") throw new Error("本机 RunningHub H3 执行器已暂停，请先在 H3 服务中恢复执行器");
@@ -135,7 +135,7 @@ export function createRunningHubH3Tools(cwd: string, signal?: AbortSignal): NonN
         throw error;
       }
 
-      const deadline = Date.now() + 15 * 60_000;
+      const deadline = Date.now() + 45 * 60_000;
       try {
         while (Date.now() < deadline) {
           signal?.throwIfAborted();

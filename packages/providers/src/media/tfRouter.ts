@@ -80,8 +80,8 @@ function wait(signal: AbortSignal) {
 }
 
 async function generateTask(context: ProviderContext, mediaType: "image" | "video" | "audio", body: unknown, mimeType?: string) {
-  // ACT: 单次生成最多等待 30 分钟；供应商开放任务恢复能力后再单独保存任务 ID。
-  const signal = AbortSignal.any([AbortSignal.timeout(30 * 60_000), ...(context.signal ? [context.signal] : [])]);
+  // ACT: 图片、视频等待 90 分钟，音频保持 30 分钟；保留原来的单次提交与取消机制。
+  const signal = AbortSignal.any([AbortSignal.timeout((mediaType === "audio" ? 30 : 90) * 60_000), ...(context.signal ? [context.signal] : [])]);
   const path = mediaType === "audio" ? "tts" : mediaType;
   const name = { image: "Image", video: "Video", audio: "Audio" }[mediaType];
   const task = await fetchJson(context, `${path}/${mediaType === "audio" ? "create" : `generate${name}`}`, body, signal);

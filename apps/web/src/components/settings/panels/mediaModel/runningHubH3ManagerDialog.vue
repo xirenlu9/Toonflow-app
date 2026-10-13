@@ -168,7 +168,7 @@ type H3Usage = { rhCoins: number | null; walletAmount: number | null; thirdParty
 type H3Job = { id: string; status: string; taskId: string | null; keyId: string | null; accountGroup: string | null; parameters: { durationSeconds: number | null; aspectRatio: string | null; megapixels: number | null }; usage: H3Usage; waitReason: string | null; hasError: boolean; createdAt: string | null; updatedAt: string | null };
 type H3Overview = {
   service: { online: boolean; executor: string };
-  executor: { paused: boolean; reason: string | null; storageBlocked: boolean; canControl: boolean; activeTasks: number };
+  executor: { paused: boolean; reason: string | null; storageBlocked: boolean; canControl: boolean; activeTasks: number; queuedTasks?: number };
   settings: { maxConcurrent: number | null; minCredits: number | null };
   keys: H3Key[];
   jobs: H3Job[];
@@ -217,7 +217,7 @@ function errorMessage(error: unknown) {
 }
 
 async function request<T>(method: "get" | "post" | "patch", path: string, body?: unknown): Promise<T> {
-  const response = await axios.request<ApiEnvelope<T>>({ method, url: `/api/runninghub-h3${path}`, data: body, timeout: 20000, headers: { "x-toonflow-desktop": "1", "Cache-Control": "no-store", Pragma: "no-cache" } });
+  const response = await axios.request<ApiEnvelope<T>>({ method, url: `/api/runninghub-h3${path}`, data: body, timeout: 60000, headers: { "x-toonflow-desktop": "1", "Cache-Control": "no-store", Pragma: "no-cache" } });
   if (response.data.code !== 200 || response.data.data === null) throw new Error(response.data.message || "本机 H3 服务请求失败");
   return response.data.data;
 }
@@ -376,6 +376,11 @@ async function saveScheduler() {
 }
 
 async function setExecutor(action: "pause" | "resume") {
+  if (action === "resume" && (overview.value?.executor.queuedTasks ?? 0) > 0) {
+    try {
+      await ElMessageBox.confirm(`已有 ${overview.value?.executor.queuedTasks} 个待提交任务，恢复将继续这些任务并可能消耗额度。`, "恢复 H3 队列", { type: "warning", confirmButtonText: "确认恢复", cancelButtonText: "保持暂停" });
+    } catch { return; }
+  }
   await mutate(action, () => request("post", `/executor/${action}`, {}), action === "pause" ? "执行器已暂停" : "执行器已恢复");
 }
 

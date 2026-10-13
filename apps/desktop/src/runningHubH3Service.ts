@@ -147,11 +147,13 @@ async function startService() {
     env: serviceEnvironment,
   });
   let exitCode: number | null = null;
+  let startupError: Error | undefined;
   child.once("exit", code => { exitCode = code; });
-  child.once("error", error => console.error("启动本机 H3 服务进程失败：", error));
+  child.once("error", error => { startupError = error; });
   child.unref();
 
   for (let attempt = 0; attempt < 30; attempt++) {
+    if (startupError) throw new Error("启动本机 H3 服务进程失败", { cause: startupError });
     if (await serviceOnline(baseUrl)) {
       console.info("本机 RunningHub H3 服务已随 Toonflow 启动");
       return;
@@ -165,9 +167,9 @@ async function startService() {
 let startupTask: Promise<void> | undefined;
 
 export default function startRunningHubH3Service() {
-  startupTask ??= startService().catch(error => {
+  // ACT: 仅合并正在启动的请求；服务后来退出时，按钮仍可重新启动。
+  startupTask ??= startService().finally(() => {
     startupTask = undefined;
-    throw error;
   });
   return startupTask;
 }

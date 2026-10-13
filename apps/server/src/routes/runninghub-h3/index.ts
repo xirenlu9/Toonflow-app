@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { Router, type Request, type Response, type NextFunction } from "express";
+import { Router } from "express";
 import { z } from "zod";
 import u from "@/utils";
 import { error, success } from "@/lib/responseFormat";
 import { runningHubH3ServiceRequest } from "@/utils/media/runningHubH3";
+import h3DesktopRequest from "@/lib/h3DesktopRequest";
 
 const serviceName = "runninghub-minimax-h3-independent";
 const keySchema = z.object({
@@ -68,29 +69,8 @@ function publicJob(value: unknown) {
   };
 }
 
-function localDesktopOnly(req: Request, _res: Response, next: NextFunction) {
-  const address = req.socket.remoteAddress ?? "";
-  const localAddress = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(address);
-  const localHost = req.hostname.toLowerCase() === "127.0.0.1";
-  const requestOrigin = `http://${req.get("host")}`;
-  const origin = req.get("origin");
-  const referer = req.get("referer");
-  const sameOrigin = origin !== undefined
-    ? origin === requestOrigin
-    : !!referer && referer.startsWith(`${requestOrigin}/`);
-  if (!req.app.locals.desktop || !localAddress || !localHost || req.get("x-toonflow-desktop") !== "1" || !sameOrigin || u.mobileLink.isMobileLinkRequest(req)) {
-    next(Object.assign(new Error("H3 Key 池只允许本机 Toonflow 桌面端管理"), { status: 403 }));
-    return;
-  }
-  next();
-}
-
 const router = Router();
-router.use((_req, res, next) => {
-  res.set("Cache-Control", "no-store").set("Pragma", "no-cache");
-  next();
-});
-router.use(localDesktopOnly);
+router.use(h3DesktopRequest);
 
 router.get("/overview", async (_req, res) => {
   const health = await runningHubH3ServiceRequest("/api/health");
@@ -118,6 +98,7 @@ router.get("/overview", async (_req, res) => {
       storageBlocked: executor.storageBlocked === true || executorStatus === "blocked",
       canControl,
       activeTasks: finiteNumber(health.activeTasks) ?? activeTasks,
+      queuedTasks: allJobs.filter(job => record(job).status === "queued").length,
     },
     settings: {
       maxConcurrent: canControl ? finiteNumber(record(executor.settings).maxConcurrent) : null,

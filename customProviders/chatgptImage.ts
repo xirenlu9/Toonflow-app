@@ -86,7 +86,7 @@ export default {
     if (!apiKey) throw new Error("请在媒体模型中填写此图片供应商的 API Key");
     const apiUrl = new URL((this.config.apiUrl ?? "").trim());
     if (!["http:", "https:"].includes(apiUrl.protocol) || apiUrl.username || apiUrl.password || apiUrl.search || apiUrl.hash) throw new Error("Base URL 必须是不含凭据、查询参数或锚点的 HTTP(S) 地址");
-    const signal = AbortSignal.any([AbortSignal.timeout(8 * 60_000), ...(this.signal ? [this.signal] : [])]);
+    const signal = AbortSignal.any([AbortSignal.timeout(24 * 60_000), ...(this.signal ? [this.signal] : [])]);
     signal.throwIfAborted();
     // 生成请求只提交一次；网络失败不自动重试，以免重复消耗额度。
     const response = await this.tool.fetch(`${apiUrl.toString().replace(/\/+$/, "")}/images/generations`, {
